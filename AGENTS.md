@@ -122,7 +122,91 @@ This is achieved by:
 
 ## 7. Local development workflow
 
-The exact sequence of commands — for a human contributor or an AI agent — to run after making a source change, how to try the built package locally, and what to run before opening a pull request now lives in the **"Development"** section of [README.md](./README.md). Follow that instead of duplicating it here; update it there if the workflow changes.
+This is the exact sequence of commands — for a human contributor or an AI agent — to run after making a source change, how to try a built package locally, and what to run before opening a pull request. `README.md` is consumer-facing SDK documentation (installation, usage, examples) and intentionally does not duplicate this section — update it here if the workflow changes.
+
+Run every command from the **repo root** — they delegate to the right workspace package(s) via `pnpm --filter` (see the root `package.json` scripts). You don't need to `cd` into a package directory for day-to-day work.
+
+### After any change to a package's `src/`, `tsup.config.ts`, `tsconfig.json`, or `package.json`
+
+Run these in order and fix any failure before moving to the next step — don't skip ahead on a red step:
+
+```bash
+pnpm install          # only needed if dependencies changed
+pnpm run lint:fix      # auto-fix formatting/lint issues (biome)
+pnpm run typecheck     # tsc --noEmit across every package — catches type errors
+pnpm run test          # vitest run across every package
+pnpm run build         # tsup across every package — confirms it actually bundles
+```
+
+To scope any of these to a single package, target it directly, e.g. `pnpm --filter ./packages/core run typecheck` (swap the path for `transport-fetch`, `transport-xhr`, `provider-s3`, `provider-r2`, `provider-http`, or a package added later).
+
+Notes:
+- `pnpm run lint:fix` before `typecheck`/`test` so formatting noise never masks a real diff in review.
+- If the change touched exports in a package's `src/index.ts`, treat it as a public API change: bump that package's version following semver (section 4) and update its `CHANGELOG.md`.
+- `.husky/pre-commit` already runs `lint` + `typecheck` and `.husky/pre-push` already runs `test` + `build` automatically — running them manually first just means you catch problems before the hook does, which is faster feedback.
+
+### Trying a built package locally, as a consumer would
+
+Running `pnpm run build` alone is not enough to know a package works when installed — `exports`, `dist` file paths, and CJS/ESM interop can only be verified by actually installing the built tarball somewhere else.
+
+```bash
+pnpm --filter ./packages/core run build
+pnpm --filter ./packages/core pack   # produces upflowi-core-<version>.tgz in packages/core/
+```
+
+Then, in a separate scratch project (not inside this repo):
+
+```bash
+mkdir -p /tmp/upflowi-smoke-test && cd /tmp/upflowi-smoke-test
+npm init -y
+npm install /absolute/path/to/upflowi-core-<version>.tgz
+```
+
+Verify both module systems resolve correctly:
+
+```js
+// esm.mjs
+import { createUploader } from "@upflowi/core";
+console.log(typeof createUploader);
+```
+```js
+// cjs.cjs
+const { createUploader } = require("@upflowi/core");
+console.log(typeof createUploader);
+```
+```bash
+node esm.mjs
+node cjs.cjs
+```
+
+Also open the scratch project in an editor and check that hovering `createUploader` shows the expected types — this catches broken `.d.ts` generation that compiling alone won't.
+
+Alternatively, for faster iteration while actively developing against another local project, use `pnpm link` instead of repacking on every change. If the other project is one of this repo's `examples/*`, no linking is needed at all — they already resolve every `@upflowi/*` package via `workspace:*`.
+
+### Running the examples
+
+`examples/browser-vite` and `examples/server-express` (see their own READMEs for details) depend on the workspace packages via `workspace:*`, so they always run against the current `packages/*` source:
+
+```bash
+pnpm run build                                  # build every package the examples depend on
+pnpm --filter ./examples/server-express run dev
+pnpm --filter ./examples/browser-vite run dev
+```
+
+### Before opening a pull request
+
+```bash
+git switch -c feat/short-description   # or fix/, docs/, refactor/, test/, chore/ — see CONTRIBUTING.md
+pnpm run lint
+pnpm run typecheck
+pnpm run test
+pnpm run build
+git add <files>
+git commit -m "type(scope): description"      # commit-msg hook enforces Conventional Commits
+git push -u origin feat/short-description     # pre-push hook re-runs test + build
+```
+
+Then open the PR against `main` as described in [CONTRIBUTING.md](./CONTRIBUTING.md). Do not bump `version` in any package's `package.json` as part of this flow — see the release process in section 4.
 
 ## 8. Target environment: server, client, or both
 

@@ -1,114 +1,284 @@
-# Node.js SDK Template
+# upflowi
 
-A template for building Node.js SDKs in TypeScript that wrap a third-party HTTP API — bundled with `tsup`, dual ESM/CJS support, and ready to publish to npm.
+**A headless, provider-agnostic file transfer engine for TypeScript and JavaScript.**
 
-> This is a **template repository**, not a finished SDK. Use GitHub's **"Use this template" → "Create a new repository"** button to generate a new project from it (Settings → General → "Template repository" must be enabled on this repo). Cloning it directly also works, but you'll be carrying this repo's git history along.
-
-## Repository layout
-
-This is a `pnpm` workspace (see `pnpm-workspace.yaml`), not a single package:
-
-```
-packages/
-  core/          # the publishable SDK — everything below refers to this package
-```
-
-All commands below run from the **repo root** and delegate to the right workspace package via `pnpm --filter` (see the root `package.json` scripts) — you don't need to `cd` into `packages/core` for day-to-day work. See `AGENTS.md` (sections 8-9) for why this layout exists and how to add provider packages (`packages/<provider>`) to it.
-
-## Using this template for a new SDK
-
-After creating a new repo from this template:
-
-1. Update `packages/core/package.json`: `name`, `description`, `keywords`, `author`, `repository` (if added), and remove `"private": true` (it's set here so the template itself can never be accidentally published to npm).
-2. `.github/workflows/publish.yml` already guards against publishing from a fork with `if: ${{ !github.event.repository.fork }}` — no repo path to hard-code, it works as-is.
-3. Replace the generic `Client` placeholder throughout `AGENTS.md`'s "Project context" section with the actual third-party API you're wrapping (client design, resource modules, error classes, credential handling — see that section for the checklist).
-4. Update this README's title, description, and examples once `packages/core/src/index.ts` has real exports.
-5. If the SDK handles a secret/API key, keep the server-side-only enforcement described in `AGENTS.md` (section 6) — don't skip that when adapting the template.
-
-## Development
-
-This is the exact sequence to run after making a source change, and how to actually try the built package locally. Run every command from the repo root with `pnpm` — they delegate to `packages/core` automatically.
-
-### After any change to `packages/core/src/`, `tsup.config.ts`, `tsconfig.json`, or `package.json`
-
-Run these in order and fix any failure before moving to the next step — don't skip ahead on a red step:
+upflowi orchestrates uploads — concurrency, chunking, multipart, retries, progress, pause/resume, cancellation, and resumable persistence — without shipping a UI, without locking you into one storage backend, and without ever seeing your cloud credentials. It runs the same way in the browser and in Node.js.
 
 ```bash
-pnpm install          # only needed if dependencies changed
-pnpm run lint:fix      # auto-fix formatting/lint issues (biome)
-pnpm run typecheck     # tsc --noEmit — catches type errors
-pnpm run test          # vitest run
-pnpm run build         # tsup — confirms the package actually bundles
+pnpm add @upflowi/core @upflowi/transport-fetch @upflowi/provider-s3
 ```
 
-Notes:
-- `pnpm run lint:fix` before `typecheck`/`test` so formatting noise never masks a real diff in review.
-- If the change touched exports in `packages/core/src/index.ts`, treat it as a public API change: bump the version following semver and update `CHANGELOG.md`/docs accordingly (see [AGENTS.md](./AGENTS.md)).
-- `.husky/pre-commit` already runs `lint` + `typecheck` and `.husky/pre-push` already runs `test` + `build` automatically — running them manually first just means you catch problems before the hook does, which is faster feedback.
+```ts
+import { createUploader } from "@upflowi/core";
+import { createFetchTransport } from "@upflowi/transport-fetch";
+import { createS3Provider } from "@upflowi/provider-s3";
 
-### Trying the built package locally, as a consumer would
+const uploader = createUploader({
+  concurrency: 3,
+  transport: createFetchTransport(),
+  provider: createS3Provider({
+    getPresignedUrl: (operation) => backendClient.getS3PresignedUrl(operation),
+  }),
+});
 
-Running `pnpm run build` alone is not enough to know the package works when installed — `exports`, `dist` file paths, and CJS/ESM interop can only be verified by actually installing the built tarball somewhere else.
+const upload = uploader.add({ source: mySource });
+upload.on("progress", (progress) => console.log(`${progress.percent.toFixed(1)}%`));
+uploader.start();
+```
+
+## Why upflowi
+
+- **Headless.** No file picker, no dashboard, no React components — just the engine. Bring your own UI.
+- **Runtime-agnostic core.** `@upflowi/core` has zero runtime dependencies and no browser/Node assumptions; everything environment-specific lives in a transport or provider package.
+- **Provider-agnostic.** AWS S3, Cloudflare R2, your own VPS, or an API you haven't written yet — all through the same `StorageProvider` interface. Install only the provider(s) you actually use.
+- **No credentials in your app bundle.** The S3 and R2 providers are driven entirely by presigned URLs your own backend generates; the SDK never touches an access key.
+- **Resumable.** Multipart uploads survive a page reload or process crash when paired with an `UploadStore` — completed parts are never re-transferred.
+- **Strictly typed.** `strict: true`, no `any` on the public surface, typed events, typed errors you can `instanceof` against.
+
+## Packages
+
+This is a `pnpm` workspace: install only what you need.
+
+| Package                     | What it is                                                              |
+| ---------------------------- | ------------------------------------------------------------------------ |
+| `@upflowi/core`               | The engine: `createUploader`, queueing, scheduling, chunking, retries, progress, the `UploadTransport`/`StorageProvider`/`UploadStore` interfaces, and every error class. Zero runtime dependencies. |
+| `@upflowi/transport-fetch`     | Moves bytes over the standard Fetch API. Works in browsers and Node.js 18+. |
+| `@upflowi/transport-xhr`       | Moves bytes over `XMLHttpRequest`. Browser-only; use it when you need fine-grained, continuously-updating upload progress that Fetch cannot provide. |
+| `@upflowi/provider-s3`         | Multipart uploads to AWS S3, driven by presigned URLs from your backend. |
+| `@upflowi/provider-r2`         | Multipart uploads to Cloudflare R2, driven by presigned URLs from your backend. |
+| `@upflowi/provider-http`       | Multipart uploads to **your own backend** (a VPS, an internal API — anything that isn't S3/R2-compatible) over a small JSON-over-HTTP convention you implement server-side. |
+
+You always need `@upflowi/core` plus one transport. A provider is only required for multipart transfers — a single small file can be uploaded with just a transport and a destination `url` (see below).
+
+## Quick start
+
+### The simplest possible upload (no provider, one request)
+
+```ts
+import { createUploader } from "@upflowi/core";
+import { createFetchTransport } from "@upflowi/transport-fetch";
+
+const uploader = createUploader({ transport: createFetchTransport() });
+
+const upload = uploader.add({
+  source: {
+    fileId: "avatar.png",
+    size: file.size,
+    read: async () => file, // a Blob, ArrayBuffer, ArrayBufferView, or string
+  },
+  options: { url: "https://your-backend.example.com/uploads/avatar.png" },
+});
+
+upload.on("completed", ({ result }) => console.log("done:", result));
+uploader.start();
+```
+
+### Multipart upload to S3 with presigned URLs
+
+Your backend never hands its AWS credentials to the browser — it only signs URLs on request. `@upflowi/provider-s3` calls your `getPresignedUrl` callback once per S3 operation (`create`, `uploadPart`, `complete`, `abort`, `listParts`) and does the rest.
+
+```ts
+// client
+import { createUploader } from "@upflowi/core";
+import { createFetchTransport } from "@upflowi/transport-fetch";
+import { createS3Provider } from "@upflowi/provider-s3";
+
+const provider = createS3Provider({
+  getPresignedUrl: async (operation) => {
+    const response = await fetch("/api/s3-presign", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(operation),
+    });
+    return response.json(); // { url, headers? }
+  },
+});
+
+const uploader = createUploader({
+  concurrency: 3,
+  chunkSize: 8 * 1024 * 1024, // 8 MiB parts
+  transport: createFetchTransport(),
+  provider,
+});
+
+const upload = uploader.add({
+  source: {
+    fileId: file.name,
+    size: file.size,
+    read: async ({ start, end }) => file.slice(start, end),
+  },
+});
+
+uploader.start();
+```
+
+```ts
+// backend (any framework — see examples/server-express for a full one)
+import { S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import {
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+  ListPartsCommand,
+} from "@aws-sdk/client-s3";
+
+const s3 = new S3Client({ region: "us-east-1" });
+
+app.post("/api/s3-presign", async (req, res) => {
+  const operation = req.body; // the same S3PresignedUrlOperation the client sent
+  const bucket = "my-bucket";
+  const key = operation.fileId;
+
+  const command =
+    operation.type === "create"
+      ? new CreateMultipartUploadCommand({ Bucket: bucket, Key: key })
+      : operation.type === "uploadPart"
+        ? new UploadPartCommand({ Bucket: bucket, Key: key, UploadId: operation.uploadId, PartNumber: operation.partNumber })
+        : operation.type === "complete"
+          ? new CompleteMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: operation.uploadId })
+          : operation.type === "abort"
+            ? new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: operation.uploadId })
+            : new ListPartsCommand({ Bucket: bucket, Key: key, UploadId: operation.uploadId });
+
+  res.json({ url: await getSignedUrl(s3, command, { expiresIn: 900 }) });
+});
+```
+
+Swap `@upflowi/provider-s3` for `@upflowi/provider-r2` to target Cloudflare R2 instead — the client code above doesn't change, only how your backend signs URLs.
+
+### Resumable uploads
+
+Pair a provider with an `UploadStore` and a crashed or reloaded upload resumes without re-transferring completed parts:
+
+```ts
+const uploader = createUploader({
+  provider,
+  transport: createFetchTransport(),
+  store: myUploadStore, // implements get/set/delete — see @upflowi/core's UploadStore type
+});
+```
+
+Core ships no store implementation on purpose (keep it dependency-free) — implement `UploadStore` against `localStorage`, IndexedDB, or your own backend; it's three methods.
+
+### Your own backend (VPS, internal API, anything not S3/R2-compatible)
+
+If your storage isn't S3-compatible, `@upflowi/provider-http` gives you a ready-made adapter for a small JSON-over-HTTP convention instead of writing a `StorageProvider` from scratch:
+
+```ts
+import { createHttpProvider } from "@upflowi/provider-http";
+
+const provider = createHttpProvider({
+  baseUrl: "https://my-vps.example.com/api",
+  getHeaders: () => ({ authorization: `Bearer ${getSessionToken()}` }),
+});
+```
+
+Your backend implements five routes — see [`@upflowi/provider-http`'s docs](./packages/provider-http/src/http-provider.ts) for the exact shapes, or [`examples/server-express`](./examples/server-express) for a full working implementation.
+
+If your backend's API doesn't fit that convention either, implement `StorageProvider` (`create`/`uploadPart`/`complete`/`abort`/`resume`) directly — it's a plain object of five functions, no base class or package required. See `@upflowi/core`'s exported `StorageProvider` type.
+
+## Events
+
+Every `Upload` and the `Uploader` itself emit typed events:
+
+```ts
+upload.on("started", ({ fileId }) => {});
+upload.on("progress", ({ fileId, loadedBytes, totalBytes, percent }) => {});
+upload.on("paused", ({ fileId }) => {});
+upload.on("resumed", ({ fileId }) => {});
+upload.on("retry", ({ fileId, attempt, error }) => {});
+upload.on("completed", ({ fileId, result }) => {});
+upload.on("failed", ({ fileId, error }) => {});
+upload.on("cancelled", ({ fileId }) => {});
+
+uploader.on("queued", ({ fileId }) => {});
+uploader.on("allCompleted", ({ completedCount, failedCount }) => {});
+```
+
+`upload.on(...)` returns an unsubscribe function.
+
+## Error handling
+
+Every error thrown by upflowi extends `UploadError` (`code`, `message`, `cause`, `retryable`, and `fileId`/`partNumber` when applicable) so you can branch with `instanceof`:
+
+```ts
+import { AbortError, HttpError, NetworkError, ProviderError, RetryExhaustedError, UploadValidationError } from "@upflowi/core";
+
+upload.on("failed", ({ error }) => {
+  if (error instanceof RetryExhaustedError) {
+    // every configured attempt failed — error.attempts, error.cause is the last underlying error
+  } else if (error instanceof ProviderError) {
+    // S3/R2/your backend rejected the operation — error.providerCode
+  } else if (error instanceof HttpError) {
+    // a non-2xx response — error.status
+  } else if (error instanceof NetworkError) {
+    // no response was received at all
+  } else if (error instanceof UploadValidationError) {
+    // bad input, caught before any network call
+  } else if (error instanceof AbortError) {
+    // the upload was cancelled — never retried
+  }
+});
+```
+
+Customize retry behavior per uploader:
+
+```ts
+createUploader({
+  retry: {
+    maxAttempts: 5,
+    initialDelayMs: 500,
+    maxDelayMs: 30_000,
+    backoffFactor: 2,
+    jitter: true,
+    shouldRetry: (error, attempt) => error.retryable, // override the default classification
+  },
+});
+```
+
+## Framework adapters
+
+upflowi never uses `class`/`new` (see [`AGENTS.md`](./AGENTS.md#2-typescript)) — every entry point is a plain factory function. For frameworks that conventionally instantiate dependencies with `new` (NestJS, for example), register it as a custom provider instead:
+
+```ts
+// nest: uploader.provider.ts
+import { createUploader } from "@upflowi/core";
+import { createFetchTransport } from "@upflowi/transport-fetch";
+import { createS3Provider } from "@upflowi/provider-s3";
+
+export const UPLOADER = Symbol("UPLOADER");
+
+export const uploaderProvider = {
+  provide: UPLOADER,
+  useFactory: () =>
+    createUploader({
+      transport: createFetchTransport(),
+      provider: createS3Provider({ getPresignedUrl: (op) => presignService.sign(op) }),
+    }),
+};
+```
+
+## Examples
+
+Two runnable examples live in [`examples/`](./examples), wired together:
+
+- [`examples/server-express`](./examples/server-express) — a minimal Express backend implementing `@upflowi/provider-http`'s JSON convention against the local filesystem, plus documentation on wiring S3/R2 presigned URLs instead.
+- [`examples/browser-vite`](./examples/browser-vite) — a plain Vite + TypeScript page (no framework) that uploads a file through `@upflowi/core` + `@upflowi/transport-fetch` + `@upflowi/provider-http` against the server example, with a live progress bar and pause/resume/cancel controls.
+
+Run both from the repo root:
 
 ```bash
+pnpm install
 pnpm run build
-pnpm --filter ./packages/core pack   # produces <package-name>-<version>.tgz in packages/core/
+pnpm --filter ./examples/server-express run dev
+pnpm --filter ./examples/browser-vite run dev   # in another terminal
 ```
 
-Then, in a separate scratch project (not inside this repo):
+## Contributing & architecture
 
-```bash
-mkdir -p /tmp/sdk-smoke-test && cd /tmp/sdk-smoke-test
-npm init -y
-npm install /absolute/path/to/<package-name>-<version>.tgz
-```
-
-Verify both module systems resolve correctly:
-
-```js
-// esm.mjs
-import { createClient } from "<package-name>";
-console.log(typeof createClient);
-```
-```js
-// cjs.cjs
-const { createClient } = require("<package-name>");
-console.log(typeof createClient);
-```
-```bash
-node esm.mjs
-node cjs.cjs
-```
-
-Also open the scratch project in an editor and check that hovering `createClient` shows the expected types — this catches broken `.d.ts` generation that compiling alone won't.
-
-Alternatively, for faster iteration while actively developing against another local project, use `pnpm link` instead of repacking on every change:
-
-```bash
-# in this repo
-pnpm run build
-pnpm --filter ./packages/core link --global
-
-# in the consumer project
-pnpm link --global <package-name>
-```
-
-Remember to `pnpm unlink --global <package-name>` in the consumer project once done, so it goes back to resolving the real published version.
-
-### Before opening a pull request
-
-```bash
-git switch -c feat/short-description   # or fix/, docs/, refactor/, test/, chore/ — see CONTRIBUTING.md
-pnpm run lint
-pnpm run typecheck
-pnpm run test
-pnpm run build
-git add <files>
-git commit -m "type(scope): description"      # commit-msg hook enforces Conventional Commits
-git push -u origin feat/short-description     # pre-push hook re-runs test + build
-```
-
-Then open the PR against `main` as described in [CONTRIBUTING.md](./CONTRIBUTING.md). Do not bump `version` in `package.json` as part of this flow — see the release process in [AGENTS.md](./AGENTS.md).
+See [`AGENTS.md`](./AGENTS.md) for the full architecture (orchestration vs. scheduling vs. transport vs. provider), the local development workflow, versioning/release process, and the standards every package in this monorepo follows. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for how to open a pull request.
 
 ## License
 

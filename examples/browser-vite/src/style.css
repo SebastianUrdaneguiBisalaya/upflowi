@@ -1,0 +1,42 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color-scheme: light dark;
+}
+
+body {
+  padding: 2rem;
+  margin: 0;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.controls {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.progress-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 1rem 0;
+}
+
+progress {
+  flex: 1;
+  height: 1rem;
+}
+
+#event-log {
+  height: 12rem;
+  padding: 0.75rem;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border-radius: 0.5rem;
+}

@@ -173,6 +173,67 @@ describe("createHttpProvider", () => {
     expect(request.body).toBe("chunk-bytes");
   });
 
+  it("uploadPart() defaults to a content-type header so server-side body parsers can match it", async () => {
+    const send = vi.fn(
+      async (_request: TransportRequest): Promise<TransportResponse> =>
+        jsonResponse(200, {
+          etag: "e1",
+        }),
+    );
+    const provider = createHttpProvider({
+      baseUrl: "https://api.example.com",
+    });
+
+    await provider.uploadPart(
+      "u1",
+      {
+        end: 10,
+        partNumber: 1,
+        size: 10,
+        start: 0,
+      },
+      "bytes",
+      contextWith({
+        send,
+      }),
+    );
+
+    const request = send.mock.calls[0]?.[0] as TransportRequest;
+    expect(request.headers?.["content-type"]).toBe("application/octet-stream");
+  });
+
+  it("uploadPart() lets getHeaders() override the default content-type", async () => {
+    const send = vi.fn(
+      async (_request: TransportRequest): Promise<TransportResponse> =>
+        jsonResponse(200, {
+          etag: "e1",
+        }),
+    );
+    const provider = createHttpProvider({
+      baseUrl: "https://api.example.com",
+      getHeaders: () => ({
+        "content-type": "application/custom",
+      }),
+    });
+
+    await provider.uploadPart(
+      "u1",
+      {
+        end: 10,
+        partNumber: 1,
+        size: 10,
+        start: 0,
+      },
+      "bytes",
+      contextWith({
+        send,
+      }),
+    );
+
+    const request = send.mock.calls[0]?.[0] as TransportRequest;
+    expect(request.headers?.["content-type"]).toBe("application/custom");
+  });
+
   it("complete() POSTs the part list and returns location/etag", async () => {
     const send = vi.fn(
       async (_request: TransportRequest): Promise<TransportResponse> =>

@@ -1,6 +1,9 @@
-# ignored in every package of the workspace (packages/*, apps/*, and the root)
+# ignored in every package of the workspace (packages/*, apps/*, examples/*, and the root)
 **/node_modules
 **/dist
+
+# examples/server-express's local filesystem storage backend
+examples/server-express/.data
 
 .env
 .env.local

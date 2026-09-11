@@ -286,7 +286,13 @@ export function createHttpProvider(
       context: StorageProviderContext,
     ): Promise<ProviderPartResult> {
       const transport = requireTransport(context);
-      const headers = await resolveHeaders(config);
+      // A default content-type is required here: unlike a Blob with its own `.type`, a raw
+      // ArrayBuffer/ArrayBufferView/string body sent via fetch/XHR carries no content-type header
+      // on its own, which breaks any server-side body parser that matches on it (e.g. Express's
+      // `express.raw({ type: ... })`). `resolveHeaders` still lets `getHeaders()` override it.
+      const headers = await resolveHeaders(config, {
+        "content-type": "application/octet-stream",
+      });
       const response = await transport.send({
         body,
         headers,

@@ -1,0 +1,22 @@
+{
+  "name": "browser-vite-example",
+  "version": "0.0.0",
+  "description": "Plain Vite + TypeScript page uploading a file through @upflowi/core against examples/server-express, with a live progress bar and pause/resume/cancel controls.",
+  "license": "ISC",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@upflowi/core": "workspace:*",
+    "@upflowi/provider-http": "workspace:*",
+    "@upflowi/transport-fetch": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "5.7.3",
+    "vite": "8.3.0"
+  }
+}

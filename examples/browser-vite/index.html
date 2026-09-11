@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>upflowi — browser example</title>
+    <link href="/src/style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <main>
+      <h1>upflowi browser example</h1>
+      <p>
+        Uploads a file to the <code>examples/server-express</code> backend via
+        <code>@upflowi/core</code> + <code>@upflowi/transport-fetch</code> + <code>@upflowi/provider-http</code>.
+        Start the server first: <code>pnpm --filter ./examples/server-express run dev</code>.
+      </p>
+
+      <input id="file-input" type="file" />
+
+      <div class="controls">
+        <button id="start-button" type="button">Start</button>
+        <button disabled id="pause-button" type="button" >Pause</button>
+        <button disabled id="resume-button" type="button" >Resume</button>
+        <button disabled id="cancel-button" type="button" >Cancel</button>
+      </div>
+
+      <div class="progress-row">
+        <progress id="progress-bar" max="100" value="0" ></progress>
+        <span id="progress-label">0%</span>
+      </div>
+
+      <pre id="event-log"></pre>
+    </main>
+    <script src="/src/main.ts" type="module" ></script>
+  </body>
+</html>
