@@ -22,7 +22,9 @@
       "!node_modules",
       "!.next",
       "!dist",
-      "!build"
+      "!build",
+      "!.claude",
+      "!**/.claude"
     ]
   },
   "formatter": {

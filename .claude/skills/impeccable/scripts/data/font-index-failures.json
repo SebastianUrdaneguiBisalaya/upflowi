@@ -1,0 +1,121 @@
+[
+  {
+    "category": "handwriting",
+    "family": "Betania Patmos GDL",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "handwriting",
+    "family": "Betania Patmos In GDL",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "sans",
+    "family": "Doto",
+    "reason": "not loaded or no lettering",
+    "variable": true,
+    "weight": 300
+  },
+  {
+    "category": "sans",
+    "family": "Doto",
+    "reason": "not loaded or no lettering",
+    "variable": true,
+    "weight": 700
+  },
+  {
+    "category": "display",
+    "family": "Jacquard 12 Charted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "display",
+    "family": "Jacquard 24 Charted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "display",
+    "family": "Jacquarda Bastarda 9 Charted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "display",
+    "family": "Jersey 10 Charted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "display",
+    "family": "Jersey 15 Charted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "display",
+    "family": "Jersey 20 Charted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "display",
+    "family": "Jersey 25 Charted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "display",
+    "family": "Micro 5 Charted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "sans",
+    "family": "Montserrat Underline",
+    "reason": "not loaded or no lettering",
+    "variable": true,
+    "weight": 400
+  },
+  {
+    "category": "sans",
+    "family": "Montserrat Underline",
+    "reason": "not loaded or no lettering",
+    "variable": true,
+    "weight": 700
+  },
+  {
+    "category": "display",
+    "family": "Redacted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "display",
+    "family": "Yarndings 12 Charted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  },
+  {
+    "category": "display",
+    "family": "Yarndings 20 Charted",
+    "reason": "not loaded or no lettering",
+    "variable": false,
+    "weight": 400
+  }
+]
