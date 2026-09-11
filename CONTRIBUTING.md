@@ -9,7 +9,7 @@ Be respectful and constructive. Disagreements about code and design are welcome;
 ## Prerequisites
 
 - Node.js `>=18.0.0`
-- [pnpm](https://pnpm.io/) `11.1.1` (this repo uses pnpm exclusively — do not commit `package-lock.json` or `yarn.lock`)
+- [pnpm](https://pnpm.io/) `12.3.4` (this repo uses pnpm exclusively — do not commit `package-lock.json` or `yarn.lock`)
 
 ## Getting started
 

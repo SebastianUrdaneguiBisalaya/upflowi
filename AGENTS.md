@@ -2,7 +2,7 @@
 
 Standards and best practices for building, maintaining, and publishing a Node.js library written in TypeScript, bundled with `tsup`, and distributed on npm.
 
-**This is a template repository.** Sections 1-10 below are generic and apply to any Node.js + TypeScript + tsup library. The final section, "Project context template: SDK for a third-party API," is a fill-in-the-blanks checklist for the specific case this template is meant for — wrapping a third-party HTTP API as an SDK — and should be adapted (or removed) once the template is instantiated for a real project.
+**Sections 1-10 below are generic** and apply to any Node.js + TypeScript + tsup library. The final section, "Project context: upflowi — headless file transfer engine SDK," instantiates the template for this specific project: a headless, provider-agnostic file transfer engine (concurrency, chunking, multipart, retries, persistence) rather than a thin wrapper around one third-party HTTP API.
 
 ## 1. Project structure
 
@@ -163,67 +163,122 @@ pnpm-workspace.yaml
 
 ---
 
-# Project context template: SDK for a third-party API
+# Project context: upflowi — headless file transfer engine SDK
 
-This section is a checklist to fill in (and rename) once this template is used to build an SDK for a specific third-party HTTP API — e.g. "Project context: Node.js SDK for `<Provider>`". Replace `<Provider>` and `Client` below with the actual API/service and the client class name you choose. If the resulting SDK isn't payments-related, adjust "Security" to match the actual sensitivity of the credentials/data involved — the server-side-only enforcement in section 6 still applies to any secret key, not just payment ones.
+`upflowi` instantiates this template for a specific project: a modern, headless, strongly-typed TypeScript/JavaScript SDK that standardizes file transfer from client applications to storage providers and HTTP endpoints. It is a **file transfer engine** — it orchestrates uploads (concurrency, queues, chunking, multipart, retries, progress, cancellation, pause/resume, persistence, transports, providers), not a thin wrapper around a single HTTP request.
 
-## 0. Concrete file structure
+This section replaces the generic "SDK for a third-party API" template with upflowi's actual shape. Sections 1-10 above (generic template) still apply in full — this section adds/overrides project-specific decisions.
 
-The generic layout in section 1 above (top of this file) says "one file per internal module" in the abstract. For an SDK wrapping a third-party API with multiple resources, that concretely looks like this — nested under `packages/core/` per the monorepo layout in section 9:
+## 0. Target environment (per section 8)
+
+**Both.** The core (`packages/core`) is runtime-agnostic (no Browser, no Node.js, no DOM, no React/Next.js assumptions). Runtime-specific code lives only in dedicated adapters/transports (e.g. an XHR transport assumes a browser-like `XMLHttpRequest`, a Node stream source assumes Node). Section 6's server-side-only secret-key rules do **not** apply here in their payments-SDK form: this SDK is not designed to hold a long-lived secret key itself — S3/R2 credentials never reach it. Instead, the SDK consumes **presigned URLs** supplied by the consumer's own backend, so the security boundary is "no AWS/Cloudflare credentials in client code," not "no SDK in client code."
+
+## 1. Concrete file structure
+
+Extends section 9's monorepo layout and section 1's "single entry point" rule per package:
 
 ```
-packages/core/
-  src/
-    index.ts              # barrel file — re-exports only the public surface
-    client.ts             # createClient() factory: config, shared request logic, type Client
-    http.ts                # low-level fetch wrapper: base URL, headers, timeouts, retries
-    errors.ts             # ApiError, AuthenticationError, ValidationError, etc.
-    environment.ts         # the server-side-only runtime guard (section 6)
-    <resource>/            # one directory per API resource (e.g. users/, orders/, webhooks/)
-      index.ts             # the resource's methods (create/get/list/update/delete), as factory functions
-      types.ts             # request/response types for this resource only
-  tests/
-    client.test.ts
-    <resource>/
-      index.test.ts        # mirrors src/<resource>/index.ts
+packages/
+  core/                          # @upflowi/core — runtime-agnostic engine, zero deps
+    src/
+      index.ts                   # barrel file — public surface only
+      uploader.ts                # createUploader() factory: config, add/addMany/start
+      upload.ts                  # per-file Upload handle: pause/resume/cancel/on
+      queue.ts                   # FIFO queue + priority hook (section 18)
+      scheduler.ts               # concurrency-limited task scheduler (global/file/chunk)
+      chunking.ts                # chunk size, part count, part iteration — transport-agnostic
+      retry.ts                   # retry/backoff policies, shouldRetry
+      progress.ts                # per-file + global progress aggregation, throttling
+      events.ts                  # typed event emitter + event payload types
+      state-machine.ts           # UploadStatus transitions (queued/uploading/paused/...)
+      errors.ts                  # UploadError, NetworkError, HttpError, AbortError, RetryExhaustedError, UploadValidationError, ProviderError
+      store.ts                   # UploadStore interface (persistence abstraction)
+      transport.ts               # UploadTransport interface
+      provider.ts                # StorageProvider interface (create/uploadPart/complete/abort/resume)
+      checksum.ts                # optional checksum abstraction (MD5/SHA-256/CRC32)
+    tests/
+      scheduler.test.ts
+      queue.test.ts
+      retry.test.ts
+      state-machine.test.ts
+      ...                        # mirrors src/
+  transport-xhr/                 # @upflowi/transport-xhr — XMLHttpRequest transport (browser)
+  transport-fetch/               # @upflowi/transport-fetch — Fetch transport
+  provider-s3/                   # @upflowi/provider-s3 — AWS S3 multipart provider
+  provider-r2/                   # @upflowi/provider-r2 — Cloudflare R2 multipart provider
+  store-memory/                  # @upflowi/store-memory — in-memory UploadStore
+  store-indexeddb/               # @upflowi/store-indexeddb — browser IndexedDB UploadStore
+pnpm-workspace.yaml
 ```
 
-- Each resource directory is self-contained: its own types file, its own methods file, its own tests. A change to how `<Provider>` shapes one resource's response never touches another resource's files.
-- `client.ts` composes the resources (e.g. `users: createUsersResource(deps)` inside the object `createClient` returns), it doesn't implement resource-specific logic itself. No classes — see section 2's no-OOP rule, which applies here too.
-- `errors.ts` and `environment.ts` are two of the few internal files re-exported in full from `index.ts` (the error classes and, if needed, the guard's error type) — everything else in `src/` stays internal unless explicitly re-exported (see section 1 at the top of this file).
+- `packages/core` has **zero runtime dependencies** and no knowledge of AWS, Cloudflare, XHR, fetch, or IndexedDB — it only depends on the `UploadTransport`, `StorageProvider`, and `UploadStore` interfaces it defines and exports.
+- Transports, providers, and stores are separate packages per section 9, each `peerDependency`-ing `@upflowi/core`. A consumer who only needs S3 + Fetch installs exactly those two packages, never XHR or R2 code.
+- `state-machine.ts` is the single source of truth for legal `UploadStatus` transitions (`queued → uploading → {paused, completed, failed, cancelled}`, `paused → uploading`, etc.); the scheduler and `Upload` handle both delegate to it instead of mutating status ad hoc.
 
-## 1. Client design
+## 2. Public API surface (per section 1's barrel-file rule)
 
-- Expose a main client created with the consumer's credentials, instead of loose functions that repeat the API key as a parameter on every call. Per section 2, this is a factory function, not a class instantiated with `new`:
-  ```ts
-  const client = createClient({ secretKey: "sk_..." });
-  await client.resource.create({ ... });
-  ```
-- Organize `<Provider>` API resources (e.g. users, orders, webhooks) as separate modules/namespaces within the client, each in its own file inside `src/`, re-exporting from `index.ts` only what should be public (request/response types, the client, error classes).
-- The client **must not** depend directly on environment variables (`process.env.PROVIDER_API_KEY`) inside the SDK: credentials are always explicitly injected by the consumer when constructing the client. Reading `process.env` is the responsibility of the app using the SDK, not the SDK itself.
+Core public exports from `@upflowi/core`'s `index.ts`:
 
-## 2. API error handling
+- `createUploader(config)` — factory, no `new` (per section 2's no-class rule).
+- `Uploader` type — `add`, `addMany`, `start`, `pause`, `resume`, `cancel`, `on`, plus queue introspection (`size`, `pending`, `active`, `completed`, `failed`, per section 17).
+- `Upload` type — the per-file handle returned by `add()`: `pause()`, `resume()`, `cancel()`, `on()`, `status`.
+- `UploadStatus`, all typed event names and payloads (`queued`, `started`, `progress`, `paused`, `resumed`, `retry`, `completed`, `failed`, `cancelled`, `allCompleted`).
+- `UploadTransport`, `StorageProvider`, `UploadStore` — the extension interfaces third-party packages implement against.
+- All error classes from `errors.ts`.
+- Config types: `UploaderConfig` (`concurrency`, `retry`, `chunkSize`, ...), `RetryConfig`, `UploadOptions` (`signal`, `priority`, `transport`, ...).
 
-- Never let a raw HTTP error (a rejected `fetch`, a 4xx/5xx status) propagate as-is to the consumer. Map `<Provider>`'s error responses to your own typed error classes, exported from `index.ts` (e.g. `ApiError`, `AuthenticationError`, `ValidationError`), including the code and message returned by the API for debugging.
-- Validate input types at compile time (TypeScript) and, when the cost of a runtime error is high (money, PII, destructive operations), consider runtime validation too, since the consumer may be in plain JS without type checking.
+No `any` and no `unknown` on this surface, per the design principles — narrow with real types even where a provider's wire format is loosely shaped (validate/parse at the provider-package boundary, not by leaking `unknown` into the core API).
 
-## 3. Security
+## 3. Orchestration vs. scheduling vs. transport vs. provider (core separation of concerns)
 
-- If this SDK uses a secret/API key, it's server-side only — see the general server-side-only rule in section 6. Concretely: never import `Client` in a browser bundle, and for any client-side flow use `<Provider>`'s own client-side/JS SDK with a public/non-privileged key, sending only the resulting non-sensitive token to the backend where this SDK runs.
-- Never log (`console.log`, `console.error`, telemetry) the full body of a request/response that may contain sensitive data or secrets. If debug logging is added, explicitly redact those fields.
-- Don't include secrets in error messages or in serializable objects the consumer might accidentally log.
-- All communication with `<Provider>`'s API must go over HTTPS; don't expose options that allow downgrading to HTTP.
-- Don't cache or persist sensitive data to disk or shared memory beyond the lifecycle of the request that uses it.
+This is the architectural rule the rest of the sections below exist to protect — keep these four concerns in different files/packages and never let one reach into another's internals:
 
-## 4. External API compatibility and stability
+- **Orchestration** (`uploader.ts`, `upload.ts`, `queue.ts`, `state-machine.ts`): decides *what* to upload, in *what order*, and tracks status. Knows nothing about HTTP or a specific provider's API shape.
+- **Scheduling** (`scheduler.ts`): decides *how many* operations run at once (global/file/chunk concurrency limits), independent of what the operation actually does.
+- **Transport** (`transport.ts` + `transport-xhr`/`transport-fetch` packages): *how* bytes physically move — HTTP mechanics, progress events, headers, abort wiring. Has no concept of "multipart" or "S3."
+- **Provider** (`provider.ts` + `provider-s3`/`provider-r2` packages): *what operations exist* on a given storage backend (`create`/`uploadPart`/`complete`/`abort`/`resume`) and how it maps those onto one or more transport calls (e.g. issuing a presigned URL per part, then calling the transport to PUT each part).
 
-- Internally version against a known version of `<Provider>`'s API. If `<Provider>` introduces breaking changes to its API, the SDK should document which API version it was tested/is supported against.
-- Request/response types for each `<Provider>` resource should live in one file per resource (e.g. `src/<resource>/types.ts`) so a change in the shape of an endpoint is easy to locate and update.
-- Cover with tests (mocking the HTTP layer, never hitting the real `<Provider>` API in unit tests) at least the happy path and error mapping for each supported resource.
+Adding a new transport or provider must never require changes to `scheduler.ts` or `queue.ts` — if it does, the abstraction has leaked.
 
-## 5. Documentation for consumers
+## 4. Chunking, multipart, and providers (S3 / R2)
 
-- `README.md` must include, at minimum: installation, client initialization, one example per main resource, and how to handle the typed errors the SDK exposes.
-- Every public exported function/method must have TSDoc with at least a one-line description and, when applicable, a usage example — this is what the consumer sees on hover in their editor, not just the README.
+- `chunking.ts` in core computes chunk/part boundaries and iterates a file's parts without loading the whole file into memory (must handle multi-GB files) — it is provider- and transport-agnostic; `provider-s3`/`provider-r2` decide how those parts map onto `CreateMultipartUpload → UploadPart × N → CompleteMultipartUpload`.
+- Provider packages never receive or store AWS/Cloudflare credentials directly from client code — they operate against **presigned URLs** the consumer's backend generates, so bytes go `Browser → HTTPS → S3/R2` without transiting the app's backend.
+- `provider-s3` and `provider-r2` each encapsulate their own quirks behind the shared `StorageProvider` interface (per section 9's adapter pattern) — the design must not assume S3 and R2 behave identically; provider-specific differences (e.g. checksum support, minimum part size) stay inside each provider package, never as a branch inside core.
+- Multipart abort/resume: `StorageProvider.abort` and `.resume` let the `Upload` handle map user-facing `pause()`/`cancel()` onto provider-specific cleanup or recovery, per section 15's `resume` op.
 
-This section is a template to be specialized per project. Sections 1-10 above are the reusable, generic part of this template for any Node.js + TypeScript + tsup library.
+## 5. Error system (per section 6's "no generic exceptions" rule)
+
+Exported typed errors, each carrying `code`, `message`, `cause`, `retryable`, and — when applicable — `fileId`/`partNumber`:
+
+- `UploadError` — base type other upload errors extend/narrow from.
+- `NetworkError`, `HttpError` — transport-layer failures (distinguish network failure from a non-2xx response).
+- `AbortError` — raised when an `AbortSignal` fires; never treated as retryable.
+- `RetryExhaustedError` — all configured attempts failed; wraps the last underlying error as `cause`.
+- `UploadValidationError` — bad input (e.g. invalid `chunkSize`, empty file list) caught before any network call.
+- `ProviderError` — a storage provider rejected an operation (e.g. S3 returned an error completing a multipart upload); carries the provider's own error code/message for debugging.
+
+Retry policy (`retry.ts`) must classify errors into retryable vs. permanent before deciding to retry, and must always treat `AbortError` and authentication errors as non-retryable unless the consumer's custom `shouldRetry` explicitly overrides it.
+
+## 6. Persistence
+
+- `UploadStore` is defined in core as an interface only (`get`/`set`/`delete`); core ships no concrete implementation and has no IndexedDB/filesystem dependency.
+- `store-memory` and `store-indexeddb` are separate packages implementing `UploadStore`, following the same peer-dependency pattern as providers (section 9).
+- Resume (section 8's pause/resume feature) must go through the `UploadStore` + `StorageProvider.resume` to avoid re-transferring parts already completed, whenever the provider can report completed-part state (e.g. S3's `ListParts`).
+
+## 7. Testing (extends section 5's general testing rule)
+
+- Unit tests are mandatory and exhaustive for `scheduler.ts`, `queue.ts`, `retry.ts`, and `state-machine.ts` — these are the core's correctness-critical, provider-agnostic logic.
+- Transport and provider packages get integration-style tests that mock the HTTP layer (never hit real S3/R2/XHR endpoints in CI).
+- Progress/event tests must cover the case of multiple concurrent files and chunks to verify global progress aggregation stays correct under concurrency, not just for a single sequential upload.
+
+## 8. Documentation for consumers
+
+- `README.md` must include: installation per package (core + at least one transport + one provider), a minimal `createUploader` + `add` + `start` example, a chunked/multipart S3 example using presigned URLs, how to listen to typed events, and how to handle each exported error class.
+- Every public exported function/type must have TSDoc, including the MVP example from the spec (`createUploader({ concurrency, retry })`, `uploader.add(file, { transport })`, `upload.on('progress', ...)`) reproduced as a doc example on `createUploader`.
+
+## 9. Explicitly out of scope (do not build without an explicit ask)
+
+UI, file picker, drag & drop, dashboard, React components, authentication, a backend service, a mandatory database, image processing, automatic compression, CDN integration, file sharing, and TUS protocol support are all out of scope for this SDK. If a task looks like it needs one of these, flag it rather than building it into `packages/core` or a provider package.
+
+This section is specific to upflowi. Sections 1-10 above remain the reusable, generic part of this template for any Node.js + TypeScript + tsup library.
