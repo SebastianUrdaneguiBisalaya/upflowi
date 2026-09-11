@@ -1,10 +1,12 @@
 {
-  "name": "@upflowi/core",
+  "name": "@upflowi/provider-s3",
   "version": "0.1.0",
-  "description": "Headless, provider-agnostic file transfer engine: concurrency, chunking, multipart, retries, and persistence, with no bundled transport or storage provider.",
+  "description": "upflowi storage provider for AWS S3 multipart uploads, driven entirely by presigned URLs your own backend generates. Never receives AWS credentials.",
   "keywords": [
     "upload",
     "file-transfer",
+    "s3",
+    "aws",
     "multipart",
     "typescript",
     "esm",
@@ -49,7 +51,11 @@
   "engines": {
     "node": ">=18.0.0"
   },
+  "peerDependencies": {
+    "@upflowi/core": "workspace:*"
+  },
   "devDependencies": {
+    "@upflowi/core": "workspace:*",
     "tsup": "8.5.1",
     "tsx": "4.23.13",
     "typescript": "5.7.3",

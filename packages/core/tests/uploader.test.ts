@@ -1,0 +1,387 @@
+import { describe, expect, it, vi } from "vitest";
+import { NetworkError, UploadValidationError } from "../src/errors.js";
+import type { FileProgress } from "../src/progress.js";
+import type {
+  ProviderCompleteResult,
+  ProviderCreateResult,
+  ProviderPartResult,
+  StorageProvider,
+} from "../src/provider.js";
+import type { StoredUploadRecord, UploadStore } from "../src/store.js";
+import type {
+  TransportRequest,
+  TransportResponse,
+  UploadTransport,
+} from "../src/transport.js";
+import type { UploadSource } from "../src/upload.js";
+import { createUploader } from "../src/uploader.js";
+
+function createMemoryStore(): UploadStore & {
+  readonly records: ReadonlyMap<string, StoredUploadRecord>;
+} {
+  const records = new Map<string, StoredUploadRecord>();
+  return {
+    delete: async (fileId) => {
+      records.delete(fileId);
+    },
+    get: async (fileId) => records.get(fileId),
+    records,
+    set: async (fileId, record) => {
+      records.set(fileId, record);
+    },
+  };
+}
+
+function createSource(fileId: string, size: number): UploadSource {
+  return {
+    fileId,
+    read: async () => new Uint8Array(size),
+    size,
+  };
+}
+
+function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = (): void => {
+      if (predicate()) {
+        resolve();
+        return;
+      }
+      if (Date.now() - start > timeoutMs) {
+        reject(new Error("waitFor timed out"));
+        return;
+      }
+      setTimeout(tick, 5);
+    };
+    tick();
+  });
+}
+
+describe("createUploader — simple transport mode", () => {
+  it("never runs more files concurrently than configured, and reports aggregated progress", async () => {
+    let active = 0;
+    let maxActive = 0;
+
+    const transport: UploadTransport = {
+      send: async (request: TransportRequest): Promise<TransportResponse> => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        request.onProgress?.({
+          loadedBytes: 100,
+          totalBytes: 100,
+        });
+        active -= 1;
+        return {
+          body: "",
+          headers: {},
+          status: 200,
+        };
+      },
+    };
+
+    const uploader = createUploader({
+      concurrency: 2,
+      transport,
+    });
+    const progressEvents: FileProgress[] = [];
+    uploader.on("progress", (payload) => progressEvents.push(payload));
+
+    const files = [
+      "a",
+      "b",
+      "c",
+      "d",
+    ].map((id) => createSource(id, 100));
+    for (const source of files) {
+      uploader.add({
+        options: {
+          url: `https://example.test/${source.fileId}`,
+        },
+        source,
+      });
+    }
+
+    let completedCount = 0;
+    let failedCount = 0;
+    const allCompleted = new Promise<void>((resolve) => {
+      uploader.on("allCompleted", (payload) => {
+        completedCount = payload.completedCount;
+        failedCount = payload.failedCount;
+        resolve();
+      });
+    });
+
+    uploader.start();
+    await allCompleted;
+
+    expect(maxActive).toBeLessThanOrEqual(2);
+    expect(completedCount).toBe(4);
+    expect(failedCount).toBe(0);
+    expect(progressEvents).toHaveLength(4);
+    expect(progressEvents.every((event) => event.percent === 100)).toBe(true);
+  });
+
+  it("retries a transient network failure and eventually completes", async () => {
+    let attempts = 0;
+    const transport: UploadTransport = {
+      send: async (request: TransportRequest): Promise<TransportResponse> => {
+        attempts += 1;
+        if (attempts < 2) {
+          throw new NetworkError("connection reset");
+        }
+        request.onProgress?.({
+          loadedBytes: 10,
+          totalBytes: 10,
+        });
+        return {
+          body: "",
+          headers: {},
+          status: 200,
+        };
+      },
+    };
+
+    const uploader = createUploader({
+      retry: {
+        initialDelayMs: 1,
+        jitter: false,
+        maxAttempts: 3,
+      },
+      transport,
+    });
+    const retryEvents: number[] = [];
+    uploader.on("retry", (payload) => retryEvents.push(payload.attempt));
+
+    const upload = uploader.add({
+      options: {
+        url: "https://example.test/file",
+      },
+      source: createSource("file-1", 10),
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "completed");
+    expect(retryEvents).toEqual([
+      1,
+    ]);
+    expect(attempts).toBe(2);
+  });
+
+  it("fails after exhausting all configured attempts", async () => {
+    const transport: UploadTransport = {
+      send: async () => {
+        throw new NetworkError("still down");
+      },
+    };
+
+    const uploader = createUploader({
+      retry: {
+        initialDelayMs: 1,
+        jitter: false,
+        maxAttempts: 2,
+      },
+      transport,
+    });
+    const failed = vi.fn();
+    uploader.on("failed", failed);
+
+    const upload = uploader.add({
+      options: {
+        url: "https://example.test/file",
+      },
+      source: createSource("file-1", 10),
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "failed");
+    expect(failed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createUploader — multipart provider mode", () => {
+  it("limits chunk concurrency and completes with parts sorted by partNumber", async () => {
+    let activeParts = 0;
+    let maxActiveParts = 0;
+    const uploadedPartNumbers: number[] = [];
+
+    const provider: StorageProvider = {
+      abort: async () => undefined,
+      complete: async (_id, parts): Promise<ProviderCompleteResult> => {
+        expect(parts.map((part) => part.partNumber)).toEqual(
+          [
+            ...parts,
+          ].map((_, index) => index + 1),
+        );
+        return {
+          etag: "final-etag",
+          location: "https://example.test/object",
+        };
+      },
+      create: async (): Promise<ProviderCreateResult> => ({
+        providerUploadId: "upload-123",
+      }),
+      resume: async () => undefined,
+      uploadPart: async (_id, chunk): Promise<ProviderPartResult> => {
+        activeParts += 1;
+        maxActiveParts = Math.max(maxActiveParts, activeParts);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        uploadedPartNumbers.push(chunk.partNumber);
+        activeParts -= 1;
+        return {
+          etag: `etag-${chunk.partNumber}`,
+          partNumber: chunk.partNumber,
+          sizeBytes: chunk.size,
+        };
+      },
+    };
+
+    const uploader = createUploader({
+      chunkConcurrency: 2,
+      chunkSize: 10,
+      provider,
+    });
+    const upload = uploader.add({
+      source: createSource("big-file", 45),
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "completed");
+    expect(maxActiveParts).toBeLessThanOrEqual(2);
+    expect(uploadedPartNumbers.sort((a, b) => a - b)).toEqual([
+      1,
+      2,
+      3,
+      4,
+      5,
+    ]);
+  });
+});
+
+describe("createUploader — resume idempotency via UploadStore", () => {
+  it("persists completed parts, survives a mid-transfer failure, and resumes without re-uploading them", async () => {
+    const store = createMemoryStore();
+
+    const failingProvider: StorageProvider = {
+      abort: async () => undefined,
+      complete: async (): Promise<ProviderCompleteResult> => {
+        throw new Error("complete should never be called before the failure");
+      },
+      create: async (): Promise<ProviderCreateResult> => ({
+        providerUploadId: "upload-abc",
+      }),
+      resume: async () => undefined,
+      uploadPart: async (_id, chunk): Promise<ProviderPartResult> => {
+        if (chunk.partNumber === 3) {
+          throw new UploadValidationError("permanent failure on part 3");
+        }
+        return {
+          etag: `etag-${chunk.partNumber}`,
+          partNumber: chunk.partNumber,
+          sizeBytes: chunk.size,
+        };
+      },
+    };
+
+    const firstUploader = createUploader({
+      chunkConcurrency: 1,
+      chunkSize: 10,
+      provider: failingProvider,
+      store,
+    });
+    const firstUpload = firstUploader.add({
+      source: createSource("resumable-file", 45),
+    });
+    firstUploader.start();
+
+    await waitFor(() => firstUpload.status === "failed");
+
+    const stored = store.records.get("resumable-file");
+    expect(stored?.providerUploadId).toBe("upload-abc");
+    expect(stored?.completedPartNumbers).toEqual([
+      1,
+      2,
+    ]);
+    expect(stored?.uploadedBytes).toBe(20);
+
+    const createSpy = vi.fn();
+    const uploadPartSpy = vi.fn();
+    const resumingProvider: StorageProvider = {
+      abort: async () => undefined,
+      complete: async (_id, parts): Promise<ProviderCompleteResult> => {
+        expect(
+          parts.map((part) => part.partNumber).sort((a, b) => a - b),
+        ).toEqual([
+          1,
+          2,
+          3,
+          4,
+          5,
+        ]);
+        return {
+          etag: "final-etag",
+          location: "https://example.test/object",
+        };
+      },
+      create: async (fileId, context): Promise<ProviderCreateResult> => {
+        createSpy(fileId, context);
+        return {
+          providerUploadId: "should-not-be-used",
+        };
+      },
+      resume: async (): Promise<
+        | {
+            providerUploadId: string;
+            completedParts: readonly ProviderPartResult[];
+          }
+        | undefined
+      > => ({
+        completedParts: [
+          {
+            etag: "etag-1",
+            partNumber: 1,
+            sizeBytes: 10,
+          },
+          {
+            etag: "etag-2",
+            partNumber: 2,
+            sizeBytes: 10,
+          },
+        ],
+        providerUploadId: "upload-abc",
+      }),
+      uploadPart: async (_id, chunk): Promise<ProviderPartResult> => {
+        uploadPartSpy(chunk.partNumber);
+        return {
+          etag: `etag-${chunk.partNumber}`,
+          partNumber: chunk.partNumber,
+          sizeBytes: chunk.size,
+        };
+      },
+    };
+
+    const secondUploader = createUploader({
+      chunkConcurrency: 2,
+      chunkSize: 10,
+      provider: resumingProvider,
+      store,
+    });
+    const secondUpload = secondUploader.add({
+      source: createSource("resumable-file", 45),
+    });
+    secondUploader.start();
+
+    await waitFor(() => secondUpload.status === "completed");
+
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(
+      uploadPartSpy.mock.calls.map((call) => call[0]).sort((a, b) => a - b),
+    ).toEqual([
+      3,
+      4,
+      5,
+    ]);
+    expect(store.records.has("resumable-file")).toBe(false);
+  });
+});

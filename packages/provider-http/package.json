@@ -1,10 +1,12 @@
 {
-  "name": "@upflowi/core",
+  "name": "@upflowi/provider-http",
   "version": "0.1.0",
-  "description": "Headless, provider-agnostic file transfer engine: concurrency, chunking, multipart, retries, and persistence, with no bundled transport or storage provider.",
+  "description": "upflowi storage provider for self-hosted / custom backends (your own VPS, an internal API, ...) over a small JSON-over-HTTP convention you implement server-side. No S3/R2 compatibility required.",
   "keywords": [
     "upload",
     "file-transfer",
+    "self-hosted",
+    "custom",
     "multipart",
     "typescript",
     "esm",
@@ -49,7 +51,11 @@
   "engines": {
     "node": ">=18.0.0"
   },
+  "peerDependencies": {
+    "@upflowi/core": "workspace:*"
+  },
   "devDependencies": {
+    "@upflowi/core": "workspace:*",
     "tsup": "8.5.1",
     "tsx": "4.23.13",
     "typescript": "5.7.3",
