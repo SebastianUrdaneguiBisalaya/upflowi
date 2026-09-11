@@ -42,7 +42,7 @@ export function ArchitectureFlow() {
   const reduceMotion = useReducedMotion();
 
   return (
-    <div className="mb-11 overflow-x-auto pb-2">
+    <div className="mb-11 hidden overflow-x-auto pb-2 sm:block">
       <svg
         aria-label="A file's path from source through orchestration, scheduling, transport, and provider, to storage"
         className="h-auto w-full min-w-160"

@@ -20,7 +20,7 @@ function TypeItem({
 }) {
   return (
     <div className="border border-line bg-bg-elevated px-5 py-4">
-      <div className="mb-2.5 flex items-baseline justify-between gap-3">
+      <div className="mb-2.5 flex flex-col md:flex-row items-baseline justify-between gap-1 md:gap-3">
         <code className="font-mono text-[12.5px] text-ink">{name}</code>
         <span className="font-mono text-[10.5px] tracking-wide text-ink-faint">
           {kicker}

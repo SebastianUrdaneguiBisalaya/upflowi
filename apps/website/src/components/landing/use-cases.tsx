@@ -29,7 +29,7 @@ export function UseCases({ items }: { items: UseCase[] }) {
               {item.label}
               {isActive ? (
                 <motion.span
-                  className="absolute -bottom-4.25 left-0 right-0 h-px bg-ink"
+                  className="absolute -bottom-4.25 left-0 right-0 hidden h-px bg-ink sm:block"
                   layoutId="use-case-underline"
                   transition={{
                     damping: 40,

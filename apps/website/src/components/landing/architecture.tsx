@@ -21,7 +21,7 @@ export function Architecture() {
           >
             <span
               aria-hidden="true"
-              className="absolute left-7.25 top-1.75 h-1.75 w-1.75 rounded-full bg-ink"
+              className="absolute -left-8 top-1.75 h-1.75 w-1.75 rounded-full bg-ink"
             />
 
             <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -49,7 +49,7 @@ export function Architecture() {
         ))}
       </div>
 
-      <p className="mt-2 max-w-[62ch] border-t border-line pt-6 text-[13px] leading-[1.7] text-ink-faint">
+      <p className="mt-2 max-w-[62ch] pt-6 text-[13px] leading-[1.7] text-ink-faint">
         A new transport or provider never touches{" "}
         <code className="text-ink-soft">scheduler.ts</code> or{" "}
         <code className="text-ink-soft">queue.ts</code> — if it does, the
