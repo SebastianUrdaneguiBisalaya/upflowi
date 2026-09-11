@@ -73,15 +73,22 @@ This is achieved by:
 
 ### CI publish flow (`.github/workflows/publish.yml`)
 
-- **Trigger**: a GitHub Release being published (`release: types: [published]`). Merging to `main` does **not** publish anything by itself — publishing is a separate, deliberate step: bump `version` in `package.json` (following semver, see section 4), merge that to `main`, then create a GitHub Release (tag matching the new version is recommended, e.g. `v1.2.0`) to trigger the actual npm publish.
-- **Gate**: `typecheck` → `lint` → `test` → `build` must all pass before publishing is attempted.
-- **Version guard**: before publishing, the workflow checks `npm view <name>@<version>` against the current `package.json` version and skips the publish step if that version is already on the registry — a safety net in case a release is edited/republished without a version bump.
+This project versions and publishes every package under `packages/*` independently with [changesets](https://github.com/changesets/changesets) — changing only `@upflowi/provider-s3` never bumps or republishes `@upflowi/core`.
+
+- **Trigger**: every push to `main`. The workflow always runs the gate first, then hands off to `changesets/action`, which does exactly one of two things depending on whether unreleased changesets exist in `.changeset/`:
+  - **Unreleased changesets exist** → opens or updates a "Version Packages" pull request that applies the version bump(s) and changelog entries per affected package. Nothing is published yet — merging to `main` by itself still doesn't publish anything.
+  - **No unreleased changesets** (i.e. that "Version Packages" PR was just merged) → runs the publish script, which builds and publishes every workspace package whose `package.json` version isn't on npm yet.
+- **Adding a changeset**: any PR that changes a published package's behavior must include one — run `pnpm changeset` (see `.changeset/README.md`), pick the affected package(s) and a bump type (see section 4), and commit the generated `.changeset/*.md` file with the PR. A PR with no changeset bumps nothing.
+- **Gate**: `typecheck` → `lint` → `test` → `build` must all pass before versioning or publishing is attempted.
+- **What's excluded**: `apps/website` and `examples/*` are listed in `.changeset/config.json`'s `ignore` array — neither is published, so changesets never versions or touches them.
 - **Required GitHub secret**: `NPM_TOKEN`.
-  - Generate it on [npmjs.com](https://www.npmjs.com) → avatar → *Access Tokens* → *Generate New Token* → **Automation** type (this type is meant for CI and bypasses the 2FA-for-publish prompt; it must have publish permission on this package/scope).
+  - Generate it on [npmjs.com](https://www.npmjs.com) → avatar → *Access Tokens* → *Generate New Token* → **Automation** type (this type is meant for CI and bypasses the 2FA-for-publish prompt; it must have publish permission on the `@upflowi` scope).
   - Configure it in GitHub at: repository → **Settings** → **Secrets and variables** → **Actions** → **New repository secret** → name it exactly `NPM_TOKEN`, paste the token value.
   - Never commit this token to the repo or print it in workflow logs.
-- The workflow publishes with `--provenance`, which requires `permissions: id-token: write` (already set in the workflow) and works for public packages published from a public GitHub repo — this gives consumers a verifiable link between the published package and this repo's build.
+- The workflow sets `NPM_CONFIG_PROVENANCE=true` so every publish carries provenance, which requires `permissions: id-token: write` (already set in the workflow) and works for public packages published from a public GitHub repo — this gives consumers a verifiable link between the published package and this repo's build.
+- The workflow also needs `permissions: contents: write` and `pull-requests: write` so `changesets/action` can push the version-bump commit and open/update the "Version Packages" PR; `GITHUB_TOKEN` is the default Actions token, not a secret you create.
 - The `if: ${{ !github.event.repository.fork }}` guard prevents the workflow from publishing from a fork.
+- Every package meant to be published must **not** set `"private": true` in its `package.json` — that field blocks `npm publish` outright, regardless of `publishConfig.access`. Keep `"private": true` only on the workspace root, `apps/website`, and `examples/*`.
 
 ## 4. Versioning and changes
 
@@ -90,7 +97,7 @@ This is achieved by:
   - `MINOR`: new backwards-compatible functionality.
   - `PATCH`: backwards-compatible fixes.
 - Any change to `src/index.ts` (adding/removing/changing an export) is, by definition, a change to the public surface: treat it with the same care as an API change, not as an internal detail.
-- Keep a `CHANGELOG.md` (or use `changesets`/`release-please` as the project grows) so whoever updates the dependency knows what changed.
+- Versioned with [changesets](https://github.com/changesets/changesets), not by hand and not in lockstep: run `pnpm changeset` in your PR instead of editing a package's `version` field or its changelog directly. Each package keeps its own `CHANGELOG.md`, generated by changesets from the changeset files merged since its last release — never hand-edit it either.
 
 ## 5. Quality and CI
 

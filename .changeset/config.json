@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema.json",
+  "access": "public",
+  "baseBranch": "main",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [],
+  "ignore": [
+    "website",
+    "server-express-example",
+    "browser-vite-example"
+  ],
+  "linked": [],
+  "updateInternalDependencies": "patch"
+}

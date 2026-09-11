@@ -260,6 +260,16 @@ export const uploaderProvider = {
 };
 ```
 
+## Access control
+
+upflowi has no concept of public or private — visibility is entirely your backend's decision, not the SDK's.
+
+- **Uploads always go through a presigned URL** (or your own backend, for `@upflowi/provider-http`), whether the finished object ends up public or private — you never want anonymous public writes to a bucket.
+- **Whether the object is public or private is decided when your backend signs the URL**: set `x-amz-acl: public-read` (or a bucket policy) when it signs the `create`/`complete` operation for a public file, or leave it private and only ever hand out presigned GET URLs for reads.
+- **Serving the file back isn't something upflowi does either**: return a public or CDN URL from your own backend after `complete`, or sign a short-lived GET URL the same way you sign uploads.
+
+This is deliberate, not an oversight — access control is a security decision that belongs in your backend, not in an upload-orchestration engine. See [`AGENTS.md`](./AGENTS.md#9-explicitly-out-of-scope-do-not-build-without-an-explicit-ask) for what's intentionally out of scope.
+
 ## Examples
 
 Two runnable examples live in [`examples/`](./examples), wired together:

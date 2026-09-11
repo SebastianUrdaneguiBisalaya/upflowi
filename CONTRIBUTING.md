@@ -4,7 +4,7 @@ Thanks for your interest in contributing! This project is a Node.js SDK template
 
 ## Code of conduct
 
-Be respectful and constructive. Disagreements about code and design are welcome; personal attacks are not.
+This project follows the [Contributor Covenant](./CODE_OF_CONDUCT.md). Be respectful and constructive — disagreements about code and design are welcome; personal attacks are not.
 
 ## Prerequisites
 
@@ -74,18 +74,29 @@ chore(deps): bump tsup to 8.6.0
 
 This keeps history readable and makes it possible to automate changelogs later.
 
+## Adding a changeset
+
+If your PR changes the published behavior of any package under `packages/*` — a fix, a new feature, a breaking change — add a changeset before opening the PR:
+
+```bash
+pnpm changeset
+```
+
+It asks which package(s) are affected and the bump type (`patch` / `minor` / `major` — see [`AGENTS.md`](./AGENTS.md#4-versioning-and-changes) for what each means), then writes a `.changeset/*.md` file. Commit it with the rest of your PR — this is how the package's version and changelog entry get generated later, so a PR that changes published behavior with no changeset is incomplete. Internal-only changes (tests, tooling, `apps/website`, `examples/*`) don't need one.
+
 ## Opening a pull request
 
 1. Push your branch and open a PR against `main`.
 2. Fill in the PR description: what changed, why, and how it was tested. Link any related issue.
 3. Ensure the CI checks (typecheck, lint, test, build) pass — a PR with red checks will not be reviewed.
 4. If your change affects the public API (anything exported from `src/index.ts`), call that out explicitly in the PR description and note whether it's a breaking change.
-5. Be responsive to review feedback. A maintainer will merge once the PR is approved and CI is green.
+5. Include a changeset (see above) if your change affects a published package.
+6. Be responsive to review feedback. A maintainer will merge once the PR is approved and CI is green.
 
 ## What you should *not* do
 
-- Do not bump the `version` field in `package.json` in a feature/fix PR — versioning and releases are handled separately by maintainers (see the release process in `AGENTS.md`).
-- Do not run `npm publish` / `pnpm publish` yourself. Publishing to npm happens exclusively through the `.github/workflows/publish.yml` GitHub Actions workflow, triggered by a maintainer publishing a GitHub Release.
+- Do not bump a package's `version` field or edit its `CHANGELOG.md` by hand — that's generated from changesets (see "Adding a changeset" above and the release process in `AGENTS.md`).
+- Do not run `npm publish` / `pnpm publish` yourself, and don't merge the bot-authored "Version Packages" pull request unless you intend to trigger a release. Publishing to npm happens exclusively through the `.github/workflows/publish.yml` GitHub Actions workflow.
 - Do not add a runtime dependency without discussing it first in an issue — this SDK aims for zero runtime dependencies whenever possible (see `AGENTS.md`).
 
 ## Reporting bugs / requesting features
