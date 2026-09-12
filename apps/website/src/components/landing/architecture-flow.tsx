@@ -39,70 +39,24 @@ const Y = 40;
 const PATH_START = nodes[0].x;
 const PATH_END = nodes[nodes.length - 1].x;
 
-// The comet is a fixed-width glowing shape that glides along the line, so
-// it needs to travel a bit past both ends of the path to fully enter/exit.
-const COMET_WIDTH = 64;
-// Matches the connecting line's strokeWidth exactly, so the comet's tips
-// never poke out above/below the line it rides on.
-const COMET_HEIGHT = 1;
-const COMET_HALF_WIDTH = COMET_WIDTH / 2;
-// A flattened rhombus: pointed left/right tips sitting on the line, widening
-// to COMET_HEIGHT only at its horizontal midpoint. The line's own Y is baked
-// into the points (polygon has no native y attribute to translate instead).
-const COMET_POINTS = `0,${Y} ${COMET_HALF_WIDTH},${Y - COMET_HEIGHT / 2} ${COMET_WIDTH},${Y} ${COMET_HALF_WIDTH},${Y + COMET_HEIGHT / 2}`;
-const TRAVEL_START = PATH_START - COMET_WIDTH;
-const TRAVEL_END = PATH_END + COMET_WIDTH;
-const TRAVEL_SPAN = TRAVEL_END - TRAVEL_START;
+// The pulse is a short light-green-to-green window inside a
+// `userSpaceOnUse` gradient.
+// Sliding its x1/x2 together (same width, moving in lockstep) along the
+// line is what makes it read as a comet travelling the path, the same
+// technique used by Vercel's "Powered By" line — a duplicate of the static
+// path, stroked with a gradient instead of a flat color.
+const PULSE_WIDTH = 220;
+const PULSE_TRAVEL_START = PATH_START - PULSE_WIDTH;
+const PULSE_TRAVEL_END = PATH_END + PULSE_WIDTH;
 
-// One color per node the comet changes to as it arrives, bookended by the
-// off-screen start/end keyframes (which just repeat the nearest node color).
-const stepColors = [
-  "#f8fafc",
-  "#22c55e",
-  "#ef4444",
-  "#ec4899",
-  "#f97316",
-  "#8b5cf6",
-];
-const colorKeyframes = [
-  stepColors[0],
-  ...stepColors,
-  stepColors[stepColors.length - 1],
-];
-const xKeyframes = [
-  TRAVEL_START,
-  ...nodes.map((node) => node.x - COMET_WIDTH / 2),
-  TRAVEL_END,
-];
-const opacityKeyframes = [
-  0,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  0,
-];
-const timeKeyframes = [
-  0,
-  ...nodes.map((node) => (node.x - TRAVEL_START) / TRAVEL_SPAN),
-  1,
-];
-
-const cometTransition = {
+const pulseTransition = {
   delay: 0.6,
   duration: 5.2,
   ease: "linear" as const,
   repeat: Infinity,
   repeatDelay: 0.6,
-  times: timeKeyframes,
 };
 
-// `currentColor` in a gradient's <stop> resolves against the CSS `color`
-// of the gradient element itself (not the shape referencing it), so the
-// color has to be animated on the gradient — a standard, reliably tweened
-// style property — rather than on the comet rect.
 const MotionLinearGradient = motion.create("linearGradient");
 
 export function ArchitectureFlow() {
@@ -122,59 +76,51 @@ export function ArchitectureFlow() {
               reduceMotion
                 ? undefined
                 : {
-                    color: colorKeyframes,
+                    x1: [
+                      PULSE_TRAVEL_START,
+                      PULSE_TRAVEL_END,
+                    ],
+                    x2: [
+                      PULSE_TRAVEL_START + PULSE_WIDTH,
+                      PULSE_TRAVEL_END + PULSE_WIDTH,
+                    ],
                   }
             }
-            id="architecture-flow-comet-color"
+            gradientUnits="userSpaceOnUse"
+            id="architecture-flow-pulse"
             initial={{
-              color: stepColors[0],
+              x1: PULSE_TRAVEL_START,
+              x2: PULSE_TRAVEL_START + PULSE_WIDTH,
             }}
             transition={
               reduceMotion
                 ? {
                     duration: 0,
                   }
-                : cometTransition
+                : pulseTransition
             }
+            y1={Y}
+            y2={Y}
           >
             <stop
               offset="0%"
-              stopColor="currentColor"
+              stopColor="#86efac"
               stopOpacity={0}
             />
             <stop
-              offset="45%"
-              stopColor="currentColor"
-              stopOpacity={1}
+              offset="18%"
+              stopColor="#86efac"
             />
             <stop
-              offset="55%"
-              stopColor="currentColor"
-              stopOpacity={1}
+              offset="60%"
+              stopColor="#22c55e"
             />
             <stop
               offset="100%"
-              stopColor="currentColor"
+              stopColor="#22c55e"
               stopOpacity={0}
             />
           </MotionLinearGradient>
-          <filter
-            height="600%"
-            id="architecture-flow-comet-glow"
-            width="200%"
-            x="-50%"
-            y="-250%"
-          >
-            <feGaussianBlur
-              result="blur"
-              stdDeviation="2.4"
-            />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
         </defs>
 
         <motion.line
@@ -206,26 +152,14 @@ export function ArchitectureFlow() {
         />
 
         {!reduceMotion && (
-          <motion.polygon
-            fill="url(#architecture-flow-comet-color)"
-            filter="url(#architecture-flow-comet-glow)"
-            initial={{
-              opacity: 0,
-              x: TRAVEL_START,
-            }}
-            points={COMET_POINTS}
-            style={{
-              transformOrigin: "0px 0px",
-            }}
-            transition={cometTransition}
-            viewport={{
-              margin: "-60px",
-              once: true,
-            }}
-            whileInView={{
-              opacity: opacityKeyframes,
-              x: xKeyframes,
-            }}
+          <line
+            stroke="url(#architecture-flow-pulse)"
+            strokeLinecap="round"
+            strokeWidth={2}
+            x1={PATH_START}
+            x2={PATH_END}
+            y1={Y}
+            y2={Y}
           />
         )}
 
