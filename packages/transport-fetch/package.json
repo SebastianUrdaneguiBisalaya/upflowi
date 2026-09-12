@@ -12,6 +12,13 @@
   ],
   "license": "ISC",
   "author": "Sebastian Marat Urdanegui Bisalaya <sebasurdanegui@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SebastianUrdaneguiBisalaya/upflowi.git",
+    "directory": "packages/transport-fetch"
+  },
+  "homepage": "https://github.com/SebastianUrdaneguiBisalaya/upflowi/tree/main/packages/transport-fetch#readme",
+  "bugs": "https://github.com/SebastianUrdaneguiBisalaya/upflowi/issues",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
