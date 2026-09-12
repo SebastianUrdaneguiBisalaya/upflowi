@@ -199,6 +199,26 @@ uploader.on("allCompleted", ({ completedCount, failedCount }) => {});
 
 `upload.on(...)` returns an unsubscribe function.
 
+## Cancellation
+
+Every `Upload` can be cancelled independently with `upload.cancel()` (or by aborting the `AbortSignal` passed in `UploadOptions.signal`) — cancelling one file never affects the others, regardless of when it's cancelled:
+
+```ts
+const uploads = uploader.addMany(files.map((source) => ({ source })));
+uploader.start();
+
+uploads[1]?.cancel(); // only this one stops; the rest keep going
+```
+
+- **Mid-transfer**: the in-flight request/parts stop as soon as the transport/provider observes the abort signal; the file's status becomes `"cancelled"` and its `cancelled` event fires. It does **not** count toward `Uploader`'s `failed`.
+- **Still queued** (added, but waiting behind `concurrency` or not yet released by `start()`): cancelling it removes it from execution entirely — it never calls its transport/provider, and the other queued files run unaffected. This is what to reach for when you want to "remove an item from the queue" before it starts.
+
+```ts
+uploader.on("allCompleted", ({ completedCount, failedCount }) => {
+  // a cancelled file is counted in neither completedCount nor failedCount
+});
+```
+
 ## Error handling
 
 Every error thrown by upflowi extends `UploadError` (`code`, `message`, `cause`, `retryable`, and `fileId`/`partNumber` when applicable) so you can branch with `instanceof`:

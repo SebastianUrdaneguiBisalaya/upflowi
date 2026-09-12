@@ -137,16 +137,30 @@ export function createUploader(config: UploaderConfig = {}): Uploader {
 
   function runUpload(handle: UploadHandle): void {
     void fileScheduler
-      .schedule(() => handle.execute())
+      .schedule(async () => {
+        // A file cancelled while still queued (never started) must not reach
+        // execute(): its status is already "cancelled", and that state has no
+        // legal transitions (see state-machine.ts), so calling execute() would
+        // throw trying to move to "uploading" instead of being a no-op.
+        if (handle.status !== "cancelled") {
+          await handle.execute();
+        }
+      })
       .then(
         () => {
-          completedCount += 1;
           settledCount += 1;
+          if (handle.status === "completed") {
+            completedCount += 1;
+          }
           checkAllCompleted();
         },
         () => {
-          failedCount += 1;
           settledCount += 1;
+          // A rejection with status "cancelled" is a legitimate cancellation
+          // (execute() re-throws AbortError after transitioning), not a failure.
+          if (handle.status !== "cancelled") {
+            failedCount += 1;
+          }
           checkAllCompleted();
         },
       );

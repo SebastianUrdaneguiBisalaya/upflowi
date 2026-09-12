@@ -362,6 +362,10 @@ Retry policy (`retry.ts`) must classify errors into retryable vs. permanent befo
 - Unit tests are mandatory and exhaustive for `scheduler.ts`, `queue.ts`, `retry.ts`, and `state-machine.ts` — these are the core's correctness-critical, provider-agnostic logic.
 - Transport and provider packages get integration-style tests that mock the HTTP layer (never hit real S3/R2/XHR endpoints in CI).
 - Progress/event tests must cover the case of multiple concurrent files and chunks to verify global progress aggregation stays correct under concurrency, not just for a single sequential upload.
+- **Cancellation is a cross-cutting concern, not just a `state-machine.ts` unit test.** `uploader.test.ts` must cover it at the orchestration level, because the bug that matters here only shows up when `Upload.cancel()`, the FIFO/scheduler queue, and the state machine interact — a passing `state-machine.test.ts` alone doesn't catch it:
+  - Cancelling one file mid-transfer must not affect the others — they still reach `completed`, and `Uploader`'s `failed` count must not include the cancelled file.
+  - Cancelling a file that is still waiting behind the concurrency limit (added, but the scheduler hasn't invoked it yet) must prevent it from ever calling `execute()` — `runUpload` in `uploader.ts` checks `handle.status !== "cancelled"` immediately before invoking `execute()` for exactly this reason: a queued upload's status is already `"cancelled"`, and `cancelled` has no legal outgoing transitions in `state-machine.ts`, so calling `execute()` on it throws trying to move to `"uploading"`. Skip it instead of executing it.
+  - Cancelling a file added before `start()` was ever called (still sitting in the pre-start FIFO in `queue.ts`) must be excluded once `start()` runs, without disturbing the other queued files.
 
 ## 8. Documentation for consumers
 

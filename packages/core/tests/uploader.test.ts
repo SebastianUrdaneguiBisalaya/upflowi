@@ -200,6 +200,169 @@ describe("createUploader — simple transport mode", () => {
   });
 });
 
+describe("createUploader — cancellation", () => {
+  it("cancelling one file mid-transfer lets the others complete normally", async () => {
+    const sendCalls: string[] = [];
+    const transport: UploadTransport = {
+      send: async (request: TransportRequest): Promise<TransportResponse> => {
+        sendCalls.push(request.url);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        request.onProgress?.({
+          loadedBytes: 100,
+          totalBytes: 100,
+        });
+        return {
+          body: "",
+          headers: {},
+          status: 200,
+        };
+      },
+    };
+
+    const uploader = createUploader({
+      concurrency: 3,
+      transport,
+    });
+
+    const uploads = [
+      "a",
+      "b",
+      "c",
+    ].map((id) =>
+      uploader.add({
+        options: {
+          url: `https://example.test/${id}`,
+        },
+        source: createSource(id, 100),
+      }),
+    );
+
+    let completedCount = 0;
+    let failedCount = 0;
+    const allCompleted = new Promise<void>((resolve) => {
+      uploader.on("allCompleted", (payload) => {
+        completedCount = payload.completedCount;
+        failedCount = payload.failedCount;
+        resolve();
+      });
+    });
+
+    uploader.start();
+    const [, target] = uploads;
+    target?.cancel();
+
+    await allCompleted;
+
+    expect(target?.status).toBe("cancelled");
+    expect(uploads[0]?.status).toBe("completed");
+    expect(uploads[2]?.status).toBe("completed");
+    expect(completedCount).toBe(2);
+    expect(failedCount).toBe(0);
+  });
+
+  it("cancelling a file still waiting behind the concurrency limit skips it entirely and lets the others finish", async () => {
+    const executed: string[] = [];
+    const transport: UploadTransport = {
+      send: async (request: TransportRequest): Promise<TransportResponse> => {
+        executed.push(request.url);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        request.onProgress?.({
+          loadedBytes: 100,
+          totalBytes: 100,
+        });
+        return {
+          body: "",
+          headers: {},
+          status: 200,
+        };
+      },
+    };
+
+    const uploader = createUploader({
+      concurrency: 1,
+      transport,
+    });
+
+    const first = uploader.add({
+      options: {
+        url: "https://example.test/first",
+      },
+      source: createSource("first", 100),
+    });
+    const second = uploader.add({
+      options: {
+        url: "https://example.test/second",
+      },
+      source: createSource("second", 100),
+    });
+
+    // "second" is still sitting behind the concurrency limit, never started.
+    second.cancel();
+    expect(second.status).toBe("cancelled");
+
+    const allCompleted = new Promise<void>((resolve) => {
+      uploader.on("allCompleted", () => resolve());
+    });
+    uploader.start();
+    await allCompleted;
+
+    expect(first.status).toBe("completed");
+    expect(second.status).toBe("cancelled");
+    expect(executed).toEqual([
+      "https://example.test/first",
+    ]);
+  });
+
+  it("cancelling a file before start() is ever called excludes it from execution once start() runs", async () => {
+    const executed: string[] = [];
+    const transport: UploadTransport = {
+      send: async (request: TransportRequest): Promise<TransportResponse> => {
+        executed.push(request.url);
+        request.onProgress?.({
+          loadedBytes: 50,
+          totalBytes: 50,
+        });
+        return {
+          body: "",
+          headers: {},
+          status: 200,
+        };
+      },
+    };
+
+    const uploader = createUploader({
+      transport,
+    });
+
+    const kept = uploader.add({
+      options: {
+        url: "https://example.test/kept",
+      },
+      source: createSource("kept", 50),
+    });
+    const removed = uploader.add({
+      options: {
+        url: "https://example.test/removed",
+      },
+      source: createSource("removed", 50),
+    });
+
+    removed.cancel();
+
+    const allCompleted = new Promise<void>((resolve) => {
+      uploader.on("allCompleted", () => resolve());
+    });
+    uploader.start();
+    await allCompleted;
+
+    expect(kept.status).toBe("completed");
+    expect(removed.status).toBe("cancelled");
+    expect(executed).toEqual([
+      "https://example.test/kept",
+    ]);
+  });
+});
+
 describe("createUploader — multipart provider mode", () => {
   it("limits chunk concurrency and completes with parts sorted by partNumber", async () => {
     let activeParts = 0;
