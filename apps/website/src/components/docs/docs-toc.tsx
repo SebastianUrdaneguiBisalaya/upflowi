@@ -121,7 +121,10 @@ function TocRoot({
         <ul className="flex flex-col items-end gap-1 py-2 pl-3">{children}</ul>
 
         {expanded ? (
-          <div className="absolute top-1/2 right-0 max-h-[min(70vh,28rem)] w-52 -translate-y-1/2 overflow-y-auto rounded-lg border border-line bg-bg-elevated/95 p-1.5 shadow-lg backdrop-blur-sm" data-lenis-prevent>
+          <div
+            className="absolute top-1/2 right-0 max-h-[min(70vh,28rem)] w-52 -translate-y-1/2 overflow-y-auto rounded-lg border border-line bg-bg-elevated/95 p-1.5 shadow-lg backdrop-blur-sm"
+            data-lenis-prevent
+          >
             <ul className="flex flex-col">
               {items.map((item, position) => (
                 <li key={item.id}>
