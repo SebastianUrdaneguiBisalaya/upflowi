@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { MoonIcon, SunIcon, SystemIcon } from "./theme-icons";
 
@@ -26,11 +26,20 @@ const options = [
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
+  // Server render and the client's very first render (pre-hydration) must produce byte-identical
+  // HTML, or React discards and re-renders the mismatched subtree — the flash/console error this
+  // was causing. The server has no way to know the visitor's theme (it's in localStorage), so
+  // instead of guessing, both sides start with `mounted = false` — no button shows as active,
+  // which is a structurally identical, valid first render either way. `useLayoutEffect` (not
+  // `useEffect`) then flips `mounted` synchronously, before the browser paints that first frame,
+  // so the correct icon is what actually reaches the screen — no visible in-between state.
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => setMounted(true), []);
+  useLayoutEffect(() => {
+    setMounted(true);
+  }, []);
 
-  const active = mounted ? (theme ?? "system") : "dark";
+  const active = theme ?? "system";
 
   return (
     <div
@@ -39,7 +48,7 @@ export function ThemeToggle() {
       role="radiogroup"
     >
       {options.map(({ value, label, Icon }) => {
-        const isActive = active === value;
+        const isActive = mounted && active === value;
         return (
           <button
             aria-label={label}

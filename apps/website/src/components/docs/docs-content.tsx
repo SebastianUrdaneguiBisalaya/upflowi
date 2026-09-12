@@ -1,6 +1,7 @@
 import { Section } from "@/components/landing/section";
 import { CodeBlock } from "@/components/ui/code-block";
 import { docsFeatures } from "@/lib/docs-content";
+import { DocsToc, DocsTocItem } from "./docs-toc";
 
 function indexFor(position: number): string {
   return String(position + 1).padStart(2, "0");
@@ -9,6 +10,20 @@ function indexFor(position: number): string {
 export function DocsContent() {
   return (
     <>
+      <DocsToc>
+        <DocsTocItem
+          id="docs-intro"
+          title="Every feature, step by step"
+        />
+        {docsFeatures.map((feature) => (
+          <DocsTocItem
+            id={feature.id}
+            key={feature.id}
+            title={feature.title}
+          />
+        ))}
+      </DocsToc>
+
       <Section
         border={false}
         id="docs-intro"

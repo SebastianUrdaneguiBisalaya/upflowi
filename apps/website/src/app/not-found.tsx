@@ -1,5 +1,5 @@
-import { ArrowLeftIcon } from "@/components/theme/theme-icons";
 import Link from "next/link";
+import { ArrowLeftIcon } from "@/components/theme/theme-icons";
 
 export default function NotFoundPage() {
   return (

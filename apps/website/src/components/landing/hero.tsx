@@ -1,7 +1,7 @@
+import Link from "next/link";
 import { ArrowDownIcon } from "@/components/theme/theme-icons";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Reveal } from "@/components/ui/reveal";
-import Link from "next/link";
 
 const INSTALL =
   "pnpm add @upflowi/core @upflowi/transport-fetch @upflowi/provider-s3";
