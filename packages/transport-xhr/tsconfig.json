@@ -1,6 +1,7 @@
 {
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
+    "baseUrl": ".",
     "declaration": true,
     "declarationMap": true,
     "exactOptionalPropertyTypes": true,
@@ -27,6 +28,11 @@
     "noUncheckedSideEffectImports": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "paths": {
+      "@upflowi/core": [
+        "../core/src/index.ts"
+      ]
+    },
     "skipLibCheck": true,
     // For nodejs:
     // "lib": ["esnext"],
