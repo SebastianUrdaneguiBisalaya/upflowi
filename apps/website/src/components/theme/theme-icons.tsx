@@ -130,3 +130,23 @@ export function ArrowDownIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export function ArrowLeftIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.4"
+      viewBox="0 0 20 20"
+    >
+      <path
+        d="M10 3v13M4.5 11.5 10 17l5.5-5.5"
+        transform="rotate(90 10 10)"
+      />
+    </svg>
+  );
+}
