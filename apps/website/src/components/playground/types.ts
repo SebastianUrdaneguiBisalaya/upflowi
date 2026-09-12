@@ -9,6 +9,9 @@ export type PlaygroundConfig = {
   chunkSize: number;
   maxAttempts: number;
   simulateFailures: SimulateFailures;
+  /** Whether every part is sent with a checksum header. The algorithm is picked automatically per
+   * provider (see use-playground-uploader.ts): R2 only accepts MD5, S3/Custom use SHA-256. */
+  checksumEnabled: boolean;
 };
 
 export type LogEntry = {
@@ -28,6 +31,7 @@ export type UploaderStats = {
 };
 
 export const DEFAULT_CONFIG: PlaygroundConfig = {
+  checksumEnabled: false,
   chunkSize: 5 * 1024 * 1024,
   concurrency: 3,
   maxAttempts: 3,

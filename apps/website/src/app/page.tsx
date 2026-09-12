@@ -9,6 +9,7 @@ import { TypeList } from "@/components/landing/type-list";
 import { UseCases } from "@/components/landing/use-cases";
 import { CodeBlock } from "@/components/ui/code-block";
 import { definitions, errors, events, packages, useCases } from "@/lib/content";
+import { isPlaygroundInteractive } from "@/lib/playground/env";
 
 const QUICKSTART = `import { createUploader } from "@upflowi/core";
 import { createFetchTransport } from "@upflowi/transport-fetch";
@@ -29,7 +30,7 @@ uploader.start();`;
 export default function Home() {
   return (
     <>
-      <SiteHeader />
+      <SiteHeader showPlayground={isPlaygroundInteractive} />
 
       <Hero />
 
@@ -164,7 +165,7 @@ export default function Home() {
         </TypeList>
       </Section>
 
-      <SiteFooter />
+      <SiteFooter showPlayground={isPlaygroundInteractive} />
     </>
   );
 }

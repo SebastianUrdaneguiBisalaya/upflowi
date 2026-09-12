@@ -314,6 +314,117 @@ describe("createHttpProvider", () => {
     expect(request.headers?.["content-type"]).toBe("application/octet-stream");
   });
 
+  it("uploadPart() attaches checksum headers when context.checksum is set", async () => {
+    const send = vi.fn(
+      async (_request: TransportRequest): Promise<TransportResponse> =>
+        jsonResponse(200, {
+          etag: "e1",
+        }),
+    );
+    const provider = createHttpProvider({
+      baseUrl: "https://api.example.com",
+    });
+
+    await provider.uploadPart(
+      "u1",
+      {
+        end: 10,
+        partNumber: 1,
+        size: 10,
+        start: 0,
+      },
+      "hello",
+      {
+        checksum: {
+          algorithm: "SHA-256",
+          compute: async (data) => `computed:${data.byteLength}`,
+        },
+        fileId: "file-1",
+        transport: {
+          send,
+        },
+      },
+    );
+
+    const request = send.mock.calls[0]?.[0] as TransportRequest;
+    expect(request.headers?.["x-upflowi-checksum-algorithm"]).toBe("SHA-256");
+    // "hello" is 5 bytes as UTF-8.
+    expect(request.headers?.["x-upflowi-checksum-value"]).toBe("computed:5");
+  });
+
+  it("uploadPart() sends no checksum headers when context.checksum is unset", async () => {
+    const send = vi.fn(
+      async (_request: TransportRequest): Promise<TransportResponse> =>
+        jsonResponse(200, {
+          etag: "e1",
+        }),
+    );
+    const provider = createHttpProvider({
+      baseUrl: "https://api.example.com",
+    });
+
+    await provider.uploadPart(
+      "u1",
+      {
+        end: 10,
+        partNumber: 1,
+        size: 10,
+        start: 0,
+      },
+      "hello",
+      contextWith({
+        send,
+      }),
+    );
+
+    const request = send.mock.calls[0]?.[0] as TransportRequest;
+    expect(request.headers?.["x-upflowi-checksum-algorithm"]).toBeUndefined();
+    expect(request.headers?.["x-upflowi-checksum-value"]).toBeUndefined();
+  });
+
+  it("uploadPart() computes the checksum over a Blob body's real bytes", async () => {
+    const send = vi.fn(
+      async (_request: TransportRequest): Promise<TransportResponse> =>
+        jsonResponse(200, {
+          etag: "e1",
+        }),
+    );
+    const provider = createHttpProvider({
+      baseUrl: "https://api.example.com",
+    });
+    const seenByteLengths: number[] = [];
+
+    await provider.uploadPart(
+      "u1",
+      {
+        end: 10,
+        partNumber: 1,
+        size: 10,
+        start: 0,
+      },
+      new Blob([
+        "hello world",
+      ]),
+      {
+        checksum: {
+          algorithm: "CRC32",
+          compute: async (data) => {
+            seenByteLengths.push(data.byteLength);
+            return "crc";
+          },
+        },
+        fileId: "file-1",
+        transport: {
+          send,
+        },
+      },
+    );
+
+    expect(seenByteLengths).toEqual([
+      11,
+    ]);
+  });
+
   it("uploadPart() lets getHeaders() override the default content-type", async () => {
     const send = vi.fn(
       async (_request: TransportRequest): Promise<TransportResponse> =>

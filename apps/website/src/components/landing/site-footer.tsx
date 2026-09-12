@@ -9,56 +9,67 @@ const AUTHOR_NAME = "Sebastian Marat Urdanegui Bisalaya";
 
 const YEAR = new Date().getFullYear();
 
-const SITEMAP = [
-  {
-    heading: "Explore",
-    links: [
-      {
-        href: "/docs",
-        label: "Docs",
-      },
-      {
-        href: "/playground",
-        label: "Playground",
-      },
-      {
-        href: GITHUB_URL,
-        label: "GitHub",
-      },
-    ],
-  },
-  {
-    heading: "On this page",
-    links: [
-      {
-        href: "/#definitions",
-        label: "What it is",
-      },
-      {
-        href: "/#architecture",
-        label: "Architecture",
-      },
-      {
-        href: "/#packages",
-        label: "Packages",
-      },
-      {
-        href: "/#quickstart",
-        label: "Quickstart",
-      },
-      {
-        href: "/#use-cases",
-        label: "Use cases",
-      },
-      {
-        href: "/#types",
-        label: "Types",
-      },
-    ],
-  },
-];
+function buildSitemap(showPlayground: boolean) {
+  return [
+    {
+      heading: "Explore",
+      links: [
+        {
+          href: "/docs",
+          label: "Docs",
+        },
+        ...(showPlayground
+          ? [
+              {
+                href: "/playground",
+                label: "Playground",
+              },
+            ]
+          : []),
+        {
+          href: GITHUB_URL,
+          label: "GitHub",
+        },
+      ],
+    },
+    {
+      heading: "On this page",
+      links: [
+        {
+          href: "/#definitions",
+          label: "What it is",
+        },
+        {
+          href: "/#architecture",
+          label: "Architecture",
+        },
+        {
+          href: "/#packages",
+          label: "Packages",
+        },
+        {
+          href: "/#quickstart",
+          label: "Quickstart",
+        },
+        {
+          href: "/#use-cases",
+          label: "Use cases",
+        },
+        {
+          href: "/#types",
+          label: "Types",
+        },
+      ],
+    },
+  ];
+}
 
-export function SiteFooter() {
+export function SiteFooter({
+  showPlayground = false,
+}: {
+  showPlayground?: boolean;
+} = {}) {
+  const sitemap = buildSitemap(showPlayground);
   return (
     <footer
       className="relative overflow-hidden bg-bg"
@@ -71,7 +82,7 @@ export function SiteFooter() {
 
       <div className="relative mx-auto max-w-205 px-6 pt-12 sm:px-8 sm:pt-14 @container">
         <div className="flex flex-col border-b border-line pb-10 gap-8">
-          {SITEMAP.map((group) => (
+          {sitemap.map((group) => (
             <div
               className="flex flex-col gap-4"
               key={group.heading}

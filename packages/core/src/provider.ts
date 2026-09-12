@@ -1,3 +1,4 @@
+import type { ChecksumComputer } from "./checksum.js";
 import type { ChunkRange } from "./chunking.js";
 import type { TransportRequestBody, UploadTransport } from "./transport.js";
 
@@ -11,6 +12,13 @@ export type ProviderPartResult = {
   readonly partNumber: number;
   readonly etag: string;
   readonly sizeBytes: number;
+  /**
+   * The value a provider computed via `context.checksum` for this part, in whatever format that
+   * provider's backend expects back at {@link StorageProvider.complete} time (e.g. S3's additional
+   * checksums must be echoed into the `CompleteMultipartUpload` request body, per part). Opaque to
+   * core — it only carries this value from `uploadPart`/`resume` through to `complete` unchanged.
+   */
+  readonly checksum?: string;
 };
 
 /** The result of {@link StorageProvider.complete}. */
@@ -32,6 +40,14 @@ export type StorageProviderContext = {
   /** The transport the provider may use to perform its own HTTP calls, when it needs one. */
   readonly transport?: UploadTransport;
   readonly signal?: AbortSignal;
+  /**
+   * Set when the consumer configured a {@link ChecksumComputer} (uploader-level or per-file). A
+   * provider that wants per-part integrity checking calls `checksum.compute(bytes)` on the part
+   * body inside its own {@link StorageProvider.uploadPart} and attaches the result however its
+   * backend expects (a request header, most commonly) — core only threads the computer through,
+   * it never calls it itself, since the header name/format is entirely backend-specific.
+   */
+  readonly checksum?: ChecksumComputer;
 };
 
 /**

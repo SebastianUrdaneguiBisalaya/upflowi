@@ -1,6 +1,11 @@
 "use client";
 
-import type { ChunkRange, Upload, Uploader } from "@upflowi/core";
+import type {
+  ChecksumComputer,
+  ChunkRange,
+  Upload,
+  Uploader,
+} from "@upflowi/core";
 import { createUploader } from "@upflowi/core";
 import { createHttpProvider } from "@upflowi/provider-http";
 import { createR2Provider } from "@upflowi/provider-r2";
@@ -8,8 +13,28 @@ import { createS3Provider } from "@upflowi/provider-s3";
 import { createFetchTransport } from "@upflowi/transport-fetch";
 import { createXhrTransport } from "@upflowi/transport-xhr";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { md5Base64, sha256Base64 } from "@/lib/playground/checksum";
 import { createLocalStorageStore } from "@/lib/playground/local-storage-store";
 import type { LogEntry, PlaygroundConfig, UploaderStats } from "./types";
+
+/**
+ * @upflowi/provider-r2 only accepts the "MD5" algorithm (R2 doesn't implement S3's
+ * x-amz-checksum-* feature); provider-s3 and provider-http both work fine with SHA-256, so that's
+ * what they get here — there's no reason to prefer MD5 for either.
+ */
+function createPlaygroundChecksumComputer(
+  provider: PlaygroundConfig["provider"],
+): ChecksumComputer {
+  return provider === "r2"
+    ? {
+        algorithm: "MD5",
+        compute: md5Base64,
+      }
+    : {
+        algorithm: "SHA-256",
+        compute: sha256Base64,
+      };
+}
 
 async function presignVia(
   endpoint: "/api/playground/s3/presign" | "/api/playground/r2/presign",
@@ -110,6 +135,11 @@ function buildUploader(
           });
 
   return createUploader({
+    ...(config.checksumEnabled
+      ? {
+          checksum: createPlaygroundChecksumComputer(config.provider),
+        }
+      : {}),
     chunkSize: config.chunkSize,
     concurrency: config.concurrency,
     provider,
@@ -134,11 +164,19 @@ export function usePlaygroundUploader(config: PlaygroundConfig): {
   const simulateFailuresRef = useRef(config.simulateFailures);
   simulateFailuresRef.current = config.simulateFailures;
 
-  const { provider, transport, concurrency, chunkSize, maxAttempts } = config;
+  const {
+    provider,
+    transport,
+    concurrency,
+    chunkSize,
+    maxAttempts,
+    checksumEnabled,
+  } = config;
   const uploader = useMemo(
     () =>
       buildUploader(
         {
+          checksumEnabled,
           chunkSize,
           concurrency,
           maxAttempts,
@@ -154,6 +192,7 @@ export function usePlaygroundUploader(config: PlaygroundConfig): {
       concurrency,
       chunkSize,
       maxAttempts,
+      checksumEnabled,
     ],
   );
 

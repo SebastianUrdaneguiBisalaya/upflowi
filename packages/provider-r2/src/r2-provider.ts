@@ -1,4 +1,5 @@
 import {
+  type ChecksumComputer,
   type ChunkRange,
   type ProviderCompleteResult,
   type ProviderCreateResult,
@@ -13,6 +14,46 @@ import {
   UploadValidationError,
 } from "@upflowi/core";
 import { escapeXmlText, extractXmlBlocks, extractXmlTag } from "./xml.js";
+
+/**
+ * Unlike S3, R2 does not implement the `x-amz-checksum-*`/`ChecksumAlgorithm` "additional
+ * checksums" feature at all (confirmed against Cloudflare's own S3 API compatibility matrix,
+ * https://developers.cloudflare.com/r2/api/s3/api/, which lists every `x-amz-checksum-*` header as
+ * unsupported). The only integrity mechanism R2 actually validates on `UploadPart` is the older,
+ * base64 `Content-MD5` header — so only `ChecksumAlgorithm: "MD5"` is honored here. Configuring any
+ * other algorithm against an R2 provider throws immediately, rather than silently sending a header
+ * R2 ignores and giving a false sense of integrity checking.
+ */
+function assertSupportedChecksumAlgorithm(
+  checksum: ChecksumComputer,
+  fileId: string,
+): void {
+  if (checksum.algorithm !== "MD5") {
+    throw new UploadValidationError(
+      `@upflowi/provider-r2 only supports the "MD5" checksum algorithm (sent as Content-MD5) — R2 does not implement S3's additional-checksums feature ("${checksum.algorithm}" requested). See https://developers.cloudflare.com/r2/api/s3/api/.`,
+      {
+        fileId,
+      },
+    );
+  }
+}
+
+/** Reads the full byte content of a {@link TransportRequestBody}, regardless of its concrete shape. */
+async function toArrayBuffer(body: TransportRequestBody): Promise<ArrayBuffer> {
+  if (typeof body === "string") {
+    return new TextEncoder().encode(body).buffer as ArrayBuffer;
+  }
+  if (body instanceof Blob) {
+    return body.arrayBuffer();
+  }
+  if (body instanceof ArrayBuffer) {
+    return body;
+  }
+  return body.buffer.slice(
+    body.byteOffset,
+    body.byteOffset + body.byteLength,
+  ) as ArrayBuffer;
+}
 
 /** One presigned request: the URL your backend signed, plus any headers it signed alongside it. */
 export type R2PresignedRequest = {
@@ -324,19 +365,28 @@ export function createR2Provider(config: R2ProviderConfig): StorageProvider {
       context: StorageProviderContext,
     ): Promise<ProviderPartResult> {
       const transport = requireTransport(context);
+      if (context.checksum) {
+        assertSupportedChecksumAlgorithm(context.checksum, context.fileId);
+      }
       const presigned = await config.getPresignedUrl({
         fileId: context.fileId,
         partNumber: chunk.partNumber,
         type: "uploadPart",
         uploadId: providerUploadId,
       });
+      const contentMd5 = context.checksum
+        ? await context.checksum.compute(await toArrayBuffer(body))
+        : undefined;
       const response = await transport.send({
         body,
-        ...(presigned.headers
-          ? {
-              headers: presigned.headers,
-            }
-          : {}),
+        headers: {
+          ...presigned.headers,
+          ...(contentMd5
+            ? {
+                "content-md5": contentMd5,
+              }
+            : {}),
+        },
         method: "PUT",
         ...(context.signal
           ? {

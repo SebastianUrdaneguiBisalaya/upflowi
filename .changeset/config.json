@@ -6,9 +6,7 @@
   "commit": false,
   "fixed": [],
   "ignore": [
-    "website",
-    "server-express-example",
-    "browser-vite-example"
+    "website"
   ],
   "linked": [],
   "updateInternalDependencies": "patch"

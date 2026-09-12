@@ -1,4 +1,5 @@
 import {
+  type ChecksumComputer,
   type ChunkRange,
   type ProviderCompleteResult,
   type ProviderCreateResult,
@@ -13,6 +14,44 @@ import {
   UploadValidationError,
 } from "@upflowi/core";
 import { isRecord, parseJson, readNumber, readString } from "./json.js";
+
+/** Reads the full byte content of a {@link TransportRequestBody}, regardless of its concrete shape. */
+async function toArrayBuffer(body: TransportRequestBody): Promise<ArrayBuffer> {
+  if (typeof body === "string") {
+    return new TextEncoder().encode(body).buffer as ArrayBuffer;
+  }
+  if (body instanceof Blob) {
+    return body.arrayBuffer();
+  }
+  if (body instanceof ArrayBuffer) {
+    return body;
+  }
+  return body.buffer.slice(
+    body.byteOffset,
+    body.byteOffset + body.byteLength,
+  ) as ArrayBuffer;
+}
+
+/**
+ * Computes `context.checksum` over `body`, if a {@link ChecksumComputer} was configured, and
+ * returns the two headers this provider's backend convention expects it under. Returns an empty
+ * object (no headers added) when no checksum computer is configured — the feature is entirely
+ * opt-in on both ends: the consumer configures a `ChecksumComputer`, and the backend chooses
+ * whether to read/verify these headers at all.
+ */
+async function computeChecksumHeaders(
+  checksum: ChecksumComputer | undefined,
+  body: TransportRequestBody,
+): Promise<Record<string, string>> {
+  if (!checksum) {
+    return {};
+  }
+  const value = await checksum.compute(await toArrayBuffer(body));
+  return {
+    "x-upflowi-checksum-algorithm": checksum.algorithm,
+    "x-upflowi-checksum-value": value,
+  };
+}
 
 /** Configuration accepted by {@link createHttpProvider}. */
 export type HttpProviderConfig = {
@@ -291,8 +330,13 @@ export function createHttpProvider(
       // ArrayBuffer/ArrayBufferView/string body sent via fetch/XHR carries no content-type header
       // on its own, which breaks any server-side body parser that matches on it (e.g. Express's
       // `express.raw({ type: ... })`). `resolveHeaders` still lets `getHeaders()` override it.
+      const checksumHeaders = await computeChecksumHeaders(
+        context.checksum,
+        body,
+      );
       const headers = await resolveHeaders(config, {
         "content-type": "application/octet-stream",
+        ...checksumHeaders,
       });
       const response = await transport.send({
         body,

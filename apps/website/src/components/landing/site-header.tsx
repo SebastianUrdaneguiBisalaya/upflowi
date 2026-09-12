@@ -4,7 +4,7 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
 // Packages, Quickstart, Use cases, Types) don't need top-level nav shortcuts; a visitor
 // scrolls to reach them. The full sitemap, including those section anchors, lives in
 // SiteFooter instead of overloading this bar.
-const links = [
+const baseLinks = [
   {
     href: "/#packages",
     label: "Packages",
@@ -18,16 +18,29 @@ const links = [
     label: "Docs",
   },
   {
-    href: "/playground",
-    label: "Playground",
-  },
-  {
     href: "/#footer",
     label: "More info",
   },
 ];
 
-export function SiteHeader() {
+const playgroundLink = {
+  href: "/playground",
+  label: "Playground",
+};
+
+export function SiteHeader({
+  showPlayground = false,
+}: {
+  showPlayground?: boolean;
+} = {}) {
+  const links = showPlayground
+    ? [
+        ...baseLinks.slice(0, 3),
+        playgroundLink,
+        ...baseLinks.slice(3),
+      ]
+    : baseLinks;
+
   return (
     <header className="sticky top-3 z-30 mx-auto max-w-205 px-6 sm:px-8">
       <div className="flex items-center justify-between gap-6 rounded-2xl border border-line bg-bg/75 px-5 py-3.5 backdrop-blur-md sm:px-6">

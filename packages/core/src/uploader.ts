@@ -1,3 +1,4 @@
+import type { ChecksumComputer } from "./checksum.js";
 import { UploadValidationError } from "./errors.js";
 import {
   createEventEmitter,
@@ -39,6 +40,15 @@ export type UploaderConfig = {
   provider?: StorageProvider;
   /** Used to persist upload progress so interrupted transfers can be resumed. */
   store?: UploadStore;
+  /**
+   * Default checksum computer used for files that don't override it in their own
+   * {@link UploadOptions}. When set, it's threaded through to `StorageProviderContext.checksum`
+   * for every multipart part — a provider that wants per-part integrity checking calls
+   * `checksum.compute(bytes)` itself and attaches the result however its backend expects (a
+   * request header, most commonly). Core never calls it and has no opinion on the header
+   * format — see `@upflowi/provider-http` for a reference implementation.
+   */
+  checksum?: ChecksumComputer;
 };
 
 /** A single file to register with {@link Uploader.add}/{@link Uploader.addMany}. */
@@ -194,6 +204,11 @@ export function createUploader(config: UploaderConfig = {}): Uploader {
       ...(config.store
         ? {
             store: config.store,
+          }
+        : {}),
+      ...(config.checksum
+        ? {
+            checksum: config.checksum,
           }
         : {}),
     };

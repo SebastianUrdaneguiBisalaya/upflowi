@@ -80,7 +80,7 @@ This project versions and publishes every package under `packages/*` independent
   - **No unreleased changesets** (i.e. that "Version Packages" PR was just merged) → runs the publish script, which builds and publishes every workspace package whose `package.json` version isn't on npm yet.
 - **Adding a changeset**: any PR that changes a published package's behavior must include one — run `pnpm changeset` (see `.changeset/README.md`), pick the affected package(s) and a bump type (see section 4), and commit the generated `.changeset/*.md` file with the PR. A PR with no changeset bumps nothing.
 - **Gate**: `typecheck` → `lint` → `test` → `build` must all pass before versioning or publishing is attempted.
-- **What's excluded**: `apps/website` and `examples/*` are listed in `.changeset/config.json`'s `ignore` array — neither is published, so changesets never versions or touches them.
+- **What's excluded**: `apps/website` is listed in `.changeset/config.json`'s `ignore` array — it's never published, so changesets never versions or touches it.
 - **Required GitHub secret**: `NPM_TOKEN`.
   - Generate it on [npmjs.com](https://www.npmjs.com) → avatar → *Access Tokens* → *Generate New Token* → **Automation** type (this type is meant for CI and bypasses the 2FA-for-publish prompt; it must have publish permission on the `@upflowi` scope).
   - Configure it in GitHub at: repository → **Settings** → **Secrets and variables** → **Actions** → **New repository secret** → name it exactly `NPM_TOKEN`, paste the token value.
@@ -88,7 +88,7 @@ This project versions and publishes every package under `packages/*` independent
 - The workflow sets `NPM_CONFIG_PROVENANCE=true` so every publish carries provenance, which requires `permissions: id-token: write` (already set in the workflow) and works for public packages published from a public GitHub repo — this gives consumers a verifiable link between the published package and this repo's build.
 - The workflow also needs `permissions: contents: write` and `pull-requests: write` so `changesets/action` can push the version-bump commit and open/update the "Version Packages" PR; `GITHUB_TOKEN` is the default Actions token, not a secret you create.
 - The `if: ${{ !github.event.repository.fork }}` guard prevents the workflow from publishing from a fork.
-- Every package meant to be published must **not** set `"private": true` in its `package.json` — that field blocks `npm publish` outright, regardless of `publishConfig.access`. Keep `"private": true` only on the workspace root, `apps/website`, and `examples/*`.
+- Every package meant to be published must **not** set `"private": true` in its `package.json` — that field blocks `npm publish` outright, regardless of `publishConfig.access`. Keep `"private": true` only on the workspace root and `apps/website`.
 
 ## 4. Versioning and changes
 
@@ -188,17 +188,7 @@ node cjs.cjs
 
 Also open the scratch project in an editor and check that hovering `createUploader` shows the expected types — this catches broken `.d.ts` generation that compiling alone won't.
 
-Alternatively, for faster iteration while actively developing against another local project, use `pnpm link` instead of repacking on every change. If the other project is one of this repo's `examples/*`, no linking is needed at all — they already resolve every `@upflowi/*` package via `workspace:*`.
-
-### Running the examples
-
-`examples/browser-vite` and `examples/server-express` (see their own READMEs for details) depend on the workspace packages via `workspace:*`, so they always run against the current `packages/*` source:
-
-```bash
-pnpm run build                                  # build every package the examples depend on
-pnpm --filter ./examples/server-express run dev
-pnpm --filter ./examples/browser-vite run dev
-```
+Alternatively, for faster iteration while actively developing against another local project, use `pnpm link` instead of repacking on every change.
 
 ### Before opening a pull request
 

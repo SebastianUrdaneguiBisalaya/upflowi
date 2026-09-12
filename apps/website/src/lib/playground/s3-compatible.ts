@@ -19,6 +19,9 @@ export type PresignOperation =
   | {
       readonly type: "create";
       readonly fileId: string;
+      /** Set by @upflowi/provider-s3 when a SHA-256/CRC32 ChecksumComputer is configured — R2 does
+       * not support this parameter, so @upflowi/provider-r2 never sends it. */
+      readonly checksumAlgorithm?: "SHA-256" | "CRC32";
     }
   | {
       readonly type: "uploadPart";
@@ -91,6 +94,14 @@ export async function presign(
         client,
         new CreateMultipartUploadCommand({
           Bucket: bucket,
+          ...(operation.checksumAlgorithm
+            ? {
+                ChecksumAlgorithm: operation.checksumAlgorithm.replace(
+                  "-",
+                  "",
+                ) as "SHA256" | "CRC32",
+              }
+            : {}),
           Key: key,
         }),
         {

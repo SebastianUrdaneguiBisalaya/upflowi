@@ -174,6 +174,28 @@ export function ConfigPanel({
         options={SIMULATE_FAILURE_OPTIONS}
         value={String(config.simulateFailures)}
       />
+
+      <SegmentedControl
+        disabled={locked}
+        label={`Per-part checksum (${config.provider === "r2" ? "MD5 — the only algorithm R2 accepts" : "SHA-256"})`}
+        onChange={(raw) =>
+          onChange({
+            ...config,
+            checksumEnabled: raw === "on",
+          })
+        }
+        options={[
+          {
+            label: "Off",
+            value: "off",
+          },
+          {
+            label: "On",
+            value: "on",
+          },
+        ]}
+        value={config.checksumEnabled ? "on" : "off"}
+      />
     </div>
   );
 }

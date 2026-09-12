@@ -115,7 +115,7 @@ uploader.start();
 ```
 
 ```ts
-// backend (any framework — see examples/server-express for a full one)
+// backend (any framework)
 import { S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
@@ -166,6 +166,47 @@ const uploader = createUploader({
 
 `@upflowi/core` ships no store implementation on purpose (keep it dependency-free): use `@upflowi/store-indexeddb` in the browser, `@upflowi/store-memory` for tests or short-lived Node scripts, or implement `UploadStore` yourself — it's three methods (`get`/`set`/`delete`). Your own implementation can point anywhere you want — your own backend (backed by Redis, a database, whatever), `localStorage`, a file — that choice belongs entirely to you; the SDK only needs the interface satisfied.
 
+### Per-part integrity checking (optional)
+
+Pass a `checksum` computer and it's threaded through to every multipart part, in `StorageProviderContext.checksum`, for a provider to use however its backend expects. **The required encoding of `compute()`'s return value depends on which provider you use** — get this wrong and the provider either rejects every part or silently sends a header the backend ignores:
+
+| Provider | Supported `algorithm` | Encoding `compute()` must return | Mechanism |
+| --- | --- | --- | --- |
+| `@upflowi/provider-http` | any (your backend decides) | whatever your own backend expects — it's opaque to the SDK | `x-upflowi-checksum-algorithm`/`x-upflowi-checksum-value` headers |
+| `@upflowi/provider-s3` | `"SHA-256"`, `"CRC32"`, or `"MD5"` | **base64** | SHA-256/CRC32 use S3's [additional checksums](https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html) (`x-amz-checksum-*`, verified per part and echoed into `CompleteMultipartUpload`); MD5 uses the older `Content-MD5` header |
+| `@upflowi/provider-r2` | `"MD5"` only | **base64** | `Content-MD5` header — R2 does not implement S3's `x-amz-checksum-*`/`ChecksumAlgorithm` feature ([confirmed against Cloudflare's S3 API compatibility matrix](https://developers.cloudflare.com/r2/api/s3/api/)); configuring `"SHA-256"`/`"CRC32"` against `provider-r2` throws `UploadValidationError` immediately rather than silently doing nothing |
+
+```ts
+import { createS3Provider } from "@upflowi/provider-s3";
+
+const uploader = createUploader({
+  provider: createS3Provider({ getPresignedUrl }),
+  transport: createFetchTransport(),
+  checksum: {
+    algorithm: "SHA-256",
+    compute: async (data) => {
+      const digest = await crypto.subtle.digest("SHA-256", data);
+      // S3/R2 require base64, NOT hex.
+      return btoa(String.fromCharCode(...new Uint8Array(digest)));
+    },
+  },
+});
+```
+
+For S3's SHA-256/CRC32 path specifically, your backend's `getPresignedUrl` must also read the `checksumAlgorithm` field `provider-s3` adds to the `"create"` operation and pass it as `ChecksumAlgorithm` to `CreateMultipartUploadCommand` — S3 only honors a part's checksum header when the algorithm was declared up front:
+
+```ts
+new CreateMultipartUploadCommand({
+  Bucket: bucket,
+  Key: key,
+  ...(operation.checksumAlgorithm
+    ? { ChecksumAlgorithm: operation.checksumAlgorithm.replace("-", "") } // "SHA-256" -> "SHA256"
+    : {}),
+})
+```
+
+`@upflowi/core` never calls `compute()` itself and has no opinion on the encoding or how the value is transmitted — both are entirely up to the provider, which is exactly why the table above matters.
+
 ### Your own backend (VPS, internal API, anything not S3/R2-compatible)
 
 If your storage isn't S3-compatible, `@upflowi/provider-http` gives you a ready-made adapter for a small JSON-over-HTTP convention instead of writing a `StorageProvider` from scratch:
@@ -179,7 +220,7 @@ const provider = createHttpProvider({
 });
 ```
 
-Your backend implements five routes — see [`@upflowi/provider-http`'s docs](./packages/provider-http/src/http-provider.ts) for the exact shapes, or [`examples/server-express`](./examples/server-express) for a full working implementation.
+Your backend implements five routes — see [`@upflowi/provider-http`'s docs](./packages/provider-http/src/http-provider.ts) for the exact shapes.
 
 If your backend's API doesn't fit that convention either, implement `StorageProvider` (`create`/`uploadPart`/`complete`/`abort`/`resume`) directly — it's a plain object of five functions, no base class or package required. See `@upflowi/core`'s exported `StorageProvider` type.
 
@@ -277,22 +318,6 @@ upflowi has no concept of public or private — visibility is entirely your back
 - **Serving the file back isn't something upflowi does either**: return a public or CDN URL from your own backend after `complete`, or sign a short-lived GET URL the same way you sign uploads.
 
 This is deliberate, not an oversight — access control is a security decision that belongs in your backend, not in an upload-orchestration engine. See [`AGENTS.md`](./AGENTS.md#9-explicitly-out-of-scope-do-not-build-without-an-explicit-ask) for what's intentionally out of scope.
-
-## Examples
-
-Two runnable examples live in [`examples/`](./examples), wired together:
-
-- [`examples/server-express`](./examples/server-express) — a minimal Express backend implementing `@upflowi/provider-http`'s JSON convention against the local filesystem, plus documentation on wiring S3/R2 presigned URLs instead.
-- [`examples/browser-vite`](./examples/browser-vite) — a plain Vite + TypeScript page (no framework) that uploads a file through `@upflowi/core` + `@upflowi/transport-fetch` + `@upflowi/provider-http` against the server example, with a live progress bar and pause/resume/cancel controls.
-
-Run both from the repo root:
-
-```bash
-pnpm install
-pnpm run build
-pnpm --filter ./examples/server-express run dev
-pnpm --filter ./examples/browser-vite run dev   # in another terminal
-```
 
 ## Contributing & architecture
 

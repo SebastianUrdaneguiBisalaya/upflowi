@@ -82,7 +82,7 @@ If your PR changes the published behavior of any package under `packages/*` — 
 pnpm changeset
 ```
 
-It asks which package(s) are affected and the bump type (`patch` / `minor` / `major` — see [`AGENTS.md`](./AGENTS.md#4-versioning-and-changes) for what each means), then writes a `.changeset/*.md` file. Commit it with the rest of your PR — this is how the package's version and changelog entry get generated later, so a PR that changes published behavior with no changeset is incomplete. Internal-only changes (tests, tooling, `apps/website`, `examples/*`) don't need one.
+It asks which package(s) are affected and the bump type (`patch` / `minor` / `major` — see [`AGENTS.md`](./AGENTS.md#4-versioning-and-changes) for what each means), then writes a `.changeset/*.md` file. Commit it with the rest of your PR — this is how the package's version and changelog entry get generated later, so a PR that changes published behavior with no changeset is incomplete. Internal-only changes (tests, tooling, `apps/website`) don't need one.
 
 ## Opening a pull request
 

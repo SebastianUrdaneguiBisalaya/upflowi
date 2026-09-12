@@ -386,4 +386,204 @@ describe("createS3Provider", () => {
       provider.create("file-1", contextWith(undefined)),
     ).rejects.toBeInstanceOf(UploadValidationError);
   });
+
+  describe("checksum (S3's additional-checksums feature)", () => {
+    it("create() declares checksumAlgorithm for SHA-256/CRC32 but not for MD5", async () => {
+      const getPresignedUrl = vi.fn(async () => ({
+        url: "https://s3.example/x",
+      }));
+      const provider = createS3Provider({
+        getPresignedUrl,
+      });
+      const transport: UploadTransport = {
+        send: async () =>
+          xmlResponse(
+            200,
+            "<InitiateMultipartUploadResult><UploadId>u1</UploadId></InitiateMultipartUploadResult>",
+          ),
+      };
+
+      await provider.create("file-1", {
+        checksum: {
+          algorithm: "SHA-256",
+          compute: async () => "unused",
+        },
+        fileId: "file-1",
+        transport,
+      });
+      expect(getPresignedUrl).toHaveBeenCalledWith({
+        checksumAlgorithm: "SHA-256",
+        fileId: "file-1",
+        type: "create",
+      });
+
+      getPresignedUrl.mockClear();
+      await provider.create("file-1", {
+        checksum: {
+          algorithm: "MD5",
+          compute: async () => "unused",
+        },
+        fileId: "file-1",
+        transport,
+      });
+      expect(getPresignedUrl).toHaveBeenCalledWith({
+        fileId: "file-1",
+        type: "create",
+      });
+    });
+
+    it("uploadPart() sends x-amz-checksum-sha256 and returns the value for CompleteMultipartUpload", async () => {
+      const send = vi.fn(
+        async (_request: TransportRequest): Promise<TransportResponse> =>
+          xmlResponse(200, "", {
+            ETag: '"e1"',
+          }),
+      );
+      const provider = createS3Provider({
+        getPresignedUrl: async () => ({
+          url: "https://s3.example/part",
+        }),
+      });
+
+      const result = await provider.uploadPart(
+        "u1",
+        {
+          end: 10,
+          partNumber: 1,
+          size: 10,
+          start: 0,
+        },
+        "hello",
+        {
+          checksum: {
+            algorithm: "SHA-256",
+            compute: async () => "base64-sha256-value",
+          },
+          fileId: "file-1",
+          transport: {
+            send,
+          },
+        },
+      );
+
+      const request = send.mock.calls[0]?.[0] as TransportRequest;
+      expect(request.headers?.["x-amz-checksum-sha256"]).toBe(
+        "base64-sha256-value",
+      );
+      expect(result.checksum).toBe("base64-sha256-value");
+    });
+
+    it("uploadPart() sends content-md5 for MD5 and does not attach a checksum to the part result", async () => {
+      const send = vi.fn(
+        async (_request: TransportRequest): Promise<TransportResponse> =>
+          xmlResponse(200, "", {
+            ETag: '"e1"',
+          }),
+      );
+      const provider = createS3Provider({
+        getPresignedUrl: async () => ({
+          url: "https://s3.example/part",
+        }),
+      });
+
+      const result = await provider.uploadPart(
+        "u1",
+        {
+          end: 10,
+          partNumber: 1,
+          size: 10,
+          start: 0,
+        },
+        "hello",
+        {
+          checksum: {
+            algorithm: "MD5",
+            compute: async () => "base64-md5-value",
+          },
+          fileId: "file-1",
+          transport: {
+            send,
+          },
+        },
+      );
+
+      const request = send.mock.calls[0]?.[0] as TransportRequest;
+      expect(request.headers?.["content-md5"]).toBe("base64-md5-value");
+      expect(request.headers?.["x-amz-checksum-md5"]).toBeUndefined();
+      expect(result.checksum).toBeUndefined();
+    });
+
+    it("complete() embeds <ChecksumSHA256> for parts that carry one", async () => {
+      const send = vi.fn(
+        async (_request: TransportRequest): Promise<TransportResponse> =>
+          xmlResponse(
+            200,
+            '<CompleteMultipartUploadResult><ETag>"final"</ETag></CompleteMultipartUploadResult>',
+          ),
+      );
+      const provider = createS3Provider({
+        getPresignedUrl: async () => ({
+          url: "https://s3.example/complete",
+        }),
+      });
+
+      await provider.complete(
+        "u1",
+        [
+          {
+            checksum: "sha-for-part-1",
+            etag: '"e1"',
+            partNumber: 1,
+            sizeBytes: 10,
+          },
+        ],
+        {
+          checksum: {
+            algorithm: "SHA-256",
+            compute: async () => "unused",
+          },
+          fileId: "file-1",
+          transport: {
+            send,
+          },
+        },
+      );
+
+      const request = send.mock.calls[0]?.[0] as TransportRequest;
+      expect(request.body).toContain(
+        "<ChecksumSHA256>sha-for-part-1</ChecksumSHA256>",
+      );
+    });
+
+    it("resume() parses <ChecksumSHA256> back into each completed part", async () => {
+      const body = `<ListPartsResult>
+        <Part><PartNumber>1</PartNumber><ETag>"e1"</ETag><Size>10</Size><ChecksumSHA256>sha-for-part-1</ChecksumSHA256></Part>
+      </ListPartsResult>`;
+      const provider = createS3Provider({
+        getPresignedUrl: async () => ({
+          url: "https://s3.example/list",
+        }),
+      });
+
+      const result = await provider.resume("file-1", "u1", {
+        checksum: {
+          algorithm: "SHA-256",
+          compute: async () => "unused",
+        },
+        fileId: "file-1",
+        transport: {
+          send: async () => xmlResponse(200, body),
+        },
+      });
+
+      expect(result?.completedParts).toEqual([
+        {
+          checksum: "sha-for-part-1",
+          etag: '"e1"',
+          partNumber: 1,
+          sizeBytes: 10,
+        },
+      ]);
+    });
+  });
 });
