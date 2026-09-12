@@ -2,7 +2,7 @@
 
 **A headless, provider-agnostic file transfer engine for TypeScript and JavaScript.**
 
-upflowi orchestrates uploads — concurrency, chunking, multipart, retries, progress, pause/resume, cancellation, and resumable persistence — without shipping a UI, without locking you into one storage backend, and without ever seeing your cloud credentials. It runs the same way in the browser and in Node.js.
+upflowi orchestrates uploads — concurrency, chunking, multipart, retries, progress, pause/resume, cancellation, and resumable persistence — without shipping a UI, without locking you into one storage backend, and without ever seeing your cloud credentials. It's built for the client (any browser, any frontend framework); the core has no browser/Node assumptions baked in, so it happens to run in Node.js too, but a backend's role stays limited to issuing presigned URLs — never running the uploader itself.
 
 ```bash
 pnpm add @upflowi/core @upflowi/transport-fetch @upflowi/provider-s3
@@ -47,6 +47,8 @@ This is a `pnpm` workspace: install only what you need.
 | `@upflowi/provider-s3`         | Multipart uploads to AWS S3, driven by presigned URLs from your backend. |
 | `@upflowi/provider-r2`         | Multipart uploads to Cloudflare R2, driven by presigned URLs from your backend. |
 | `@upflowi/provider-http`       | Multipart uploads to **your own backend** (a VPS, an internal API — anything that isn't S3/R2-compatible) over a small JSON-over-HTTP convention you implement server-side. |
+| `@upflowi/store-memory`        | In-memory `UploadStore` — resume state for the lifetime of the process. Good for tests and short-lived scripts. |
+| `@upflowi/store-indexeddb`     | Browser `UploadStore` backed by IndexedDB — resume state survives a page reload or a crashed tab. |
 
 You always need `@upflowi/core` plus one transport. A provider is only required for multipart transfers — a single small file can be uploaded with just a transport and a destination `url` (see below).
 
@@ -153,14 +155,16 @@ Swap `@upflowi/provider-s3` for `@upflowi/provider-r2` to target Cloudflare R2 i
 Pair a provider with an `UploadStore` and a crashed or reloaded upload resumes without re-transferring completed parts:
 
 ```ts
+import { createIndexedDbStore } from "@upflowi/store-indexeddb";
+
 const uploader = createUploader({
   provider,
   transport: createFetchTransport(),
-  store: myUploadStore, // implements get/set/delete — see @upflowi/core's UploadStore type
+  store: createIndexedDbStore(),
 });
 ```
 
-Core ships no store implementation on purpose (keep it dependency-free) — implement `UploadStore` against `localStorage`, IndexedDB, or your own backend; it's three methods.
+`@upflowi/core` ships no store implementation on purpose (keep it dependency-free): use `@upflowi/store-indexeddb` in the browser, `@upflowi/store-memory` for tests or short-lived Node scripts, or implement `UploadStore` yourself — it's three methods (`get`/`set`/`delete`). Your own implementation can point anywhere you want — your own backend (backed by Redis, a database, whatever), `localStorage`, a file — that choice belongs entirely to you; the SDK only needs the interface satisfied.
 
 ### Your own backend (VPS, internal API, anything not S3/R2-compatible)
 
@@ -258,27 +262,11 @@ createUploader({
 });
 ```
 
-## Framework adapters
+## Where this runs
 
-upflowi never uses `class`/`new` (see [`AGENTS.md`](./AGENTS.md#2-typescript)) — every entry point is a plain factory function. For frameworks that conventionally instantiate dependencies with `new` (NestJS, for example), register it as a custom provider instead:
+`createUploader`, its transport, and its provider are meant to run **client-side** — a browser tab (any frontend framework, or none) is the primary target, since the whole point of a presigned-URL provider (`@upflowi/provider-s3`/`-r2`) is that bytes flow straight from the browser to storage, never through your backend. `@upflowi/transport-fetch` also happens to work in Node.js 18+, so the same engine can drive a server-to-server transfer if you have one, but that's a secondary use case, not the design center.
 
-```ts
-// nest: uploader.provider.ts
-import { createUploader } from "@upflowi/core";
-import { createFetchTransport } from "@upflowi/transport-fetch";
-import { createS3Provider } from "@upflowi/provider-s3";
-
-export const UPLOADER = Symbol("UPLOADER");
-
-export const uploaderProvider = {
-  provide: UPLOADER,
-  useFactory: () =>
-    createUploader({
-      transport: createFetchTransport(),
-      provider: createS3Provider({ getPresignedUrl: (op) => presignService.sign(op) }),
-    }),
-};
-```
+Your backend's job in the primary flow is narrow and stays entirely separate from the engine itself: expose an endpoint that returns a presigned URL for `getPresignedUrl` to call (or implement `@upflowi/provider-http`'s five JSON routes if you're not S3/R2-compatible). Whatever else your backend does — persist resume state in Redis via your own `UploadStore`, authenticate the presign request, whatever your app needs — is entirely up to you; the SDK has no opinion on it and no dependency on it.
 
 ## Access control
 

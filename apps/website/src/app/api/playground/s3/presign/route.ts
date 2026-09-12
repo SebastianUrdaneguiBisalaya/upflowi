@@ -41,6 +41,10 @@ export async function POST(request: Request): Promise<Response> {
       secretAccessKey: config.secretAccessKey,
     },
     region: config.region,
+    // Without this, the SDK signs a checksum requirement (e.g. x-amz-checksum-crc32) into the
+    // presigned URL by default. Our client sends the raw XML/bytes with no matching checksum
+    // header, so S3 rejects complete/uploadPart with 400 Bad Request.
+    requestChecksumCalculation: "WHEN_REQUIRED",
   });
 
   const result = await presign(client, config.bucket, operation);

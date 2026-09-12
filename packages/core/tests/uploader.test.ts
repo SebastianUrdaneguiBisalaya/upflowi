@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   HttpError,
   NetworkError,
+  ProviderError,
   UploadValidationError,
 } from "../src/errors.js";
 import type { FileProgress } from "../src/progress.js";
@@ -423,6 +424,99 @@ describe("createUploader — multipart provider mode", () => {
       4,
       5,
     ]);
+  });
+
+  it("retries a part rejected with a retryable ProviderError (e.g. a 503) and eventually completes", async () => {
+    let attempts = 0;
+    const provider: StorageProvider = {
+      abort: async () => undefined,
+      complete: async (): Promise<ProviderCompleteResult> => ({
+        etag: "final-etag",
+      }),
+      create: async (): Promise<ProviderCreateResult> => ({
+        providerUploadId: "upload-503",
+      }),
+      resume: async () => undefined,
+      uploadPart: async (_id, chunk): Promise<ProviderPartResult> => {
+        attempts += 1;
+        if (attempts < 3) {
+          throw new ProviderError(
+            "Backend upload part failed with status 503.",
+            {
+              providerCode: "503",
+              retryable: true,
+            },
+          );
+        }
+        return {
+          etag: `etag-${chunk.partNumber}`,
+          partNumber: chunk.partNumber,
+          sizeBytes: chunk.size,
+        };
+      },
+    };
+
+    const uploader = createUploader({
+      provider,
+      retry: {
+        initialDelayMs: 1,
+        jitter: false,
+        maxAttempts: 3,
+      },
+    });
+    const retryEvents: number[] = [];
+    uploader.on("retry", (payload) => retryEvents.push(payload.attempt));
+
+    const upload = uploader.add({
+      source: createSource("flaky-file", 10),
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "completed");
+    expect(retryEvents).toEqual([
+      1,
+      2,
+    ]);
+    expect(attempts).toBe(3);
+  });
+
+  it("does not retry a part rejected with a non-retryable ProviderError (e.g. a 400)", async () => {
+    let attempts = 0;
+    const provider: StorageProvider = {
+      abort: async () => undefined,
+      complete: async (): Promise<ProviderCompleteResult> => ({}),
+      create: async (): Promise<ProviderCreateResult> => ({
+        providerUploadId: "upload-400",
+      }),
+      resume: async () => undefined,
+      uploadPart: async (): Promise<ProviderPartResult> => {
+        attempts += 1;
+        throw new ProviderError("Backend upload part failed with status 400.", {
+          providerCode: "400",
+          retryable: false,
+        });
+      },
+    };
+
+    const uploader = createUploader({
+      provider,
+      retry: {
+        initialDelayMs: 1,
+        jitter: false,
+        maxAttempts: 3,
+      },
+    });
+    const retryEvents: number[] = [];
+    uploader.on("retry", (payload) => retryEvents.push(payload.attempt));
+
+    const upload = uploader.add({
+      source: createSource("permanently-broken-file", 10),
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "failed");
+    expect(retryEvents).toEqual([]);
+    expect(attempts).toBe(1);
   });
 });
 

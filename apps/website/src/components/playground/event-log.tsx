@@ -25,7 +25,8 @@ export function EventLog({ entries }: { entries: LogEntry[] }) {
         </span>
       </div>
       <div
-        className="max-h-72 overflow-y-auto px-4 py-3 font-mono text-[11.5px] leading-[1.9]"
+        className="max-h-72 min-w-0 overflow-y-auto px-4 py-3 font-mono text-[11.5px] leading-[1.9]"
+        data-lenis-prevent
         ref={scrollRef}
       >
         {entries.length === 0 ? (
@@ -35,7 +36,7 @@ export function EventLog({ entries }: { entries: LogEntry[] }) {
         ) : (
           entries.map((entry) => (
             <div
-              className="flex gap-2 text-ink-soft"
+              className="flex flex-wrap gap-x-2 text-ink-soft"
               key={entry.id}
             >
               <span className="shrink-0 text-ink-faint">
@@ -43,10 +44,10 @@ export function EventLog({ entries }: { entries: LogEntry[] }) {
               </span>
               <span className="shrink-0 text-ink">{entry.event}</span>
               {entry.fileId ? (
-                <span className="truncate text-ink-faint">{entry.fileId}</span>
+                <span className="break-all text-ink-faint">{entry.fileId}</span>
               ) : null}
               {entry.detail ? (
-                <span className="truncate">{entry.detail}</span>
+                <span className="break-all">{entry.detail}</span>
               ) : null}
             </div>
           ))

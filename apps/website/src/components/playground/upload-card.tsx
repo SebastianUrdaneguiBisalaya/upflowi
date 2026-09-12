@@ -50,14 +50,14 @@ export function UploadCard({ upload }: { upload: Upload }) {
     status === "queued" || status === "uploading" || status === "paused";
 
   return (
-    <div className="flex flex-col gap-2 border border-line bg-bg-elevated p-4">
-      <div className="flex items-center justify-between gap-3">
-        <span className="truncate font-mono text-[12px] text-ink">
+    <div className="flex min-w-0 flex-col gap-2 border border-line bg-bg-elevated p-4">
+      <div className="flex items-start justify-between gap-3">
+        <span className="min-w-0 break-all font-mono text-[12px] text-ink">
           {upload.fileId}
         </span>
         <span
           className={cn(
-            "font-mono text-[10.5px] uppercase tracking-wide",
+            "shrink-0 font-mono text-[10.5px] uppercase tracking-wide",
             STATUS_STYLES[status],
           )}
         >
@@ -78,7 +78,7 @@ export function UploadCard({ upload }: { upload: Upload }) {
       </div>
 
       {errorMessage ? (
-        <p className="text-[11px] text-ink-faint">{errorMessage}</p>
+        <p className="break-all text-[11px] text-ink-faint">{errorMessage}</p>
       ) : null}
 
       <div className="flex gap-2">

@@ -29,6 +29,16 @@ export const packages = [
     name: "@upflowi/provider-http",
     note: "Your own backend — JSON over HTTP.",
   },
+  {
+    install: "pnpm add -E @upflowi/store-memory",
+    name: "@upflowi/store-memory",
+    note: "In-memory UploadStore. Tests, short-lived scripts.",
+  },
+  {
+    install: "pnpm add -E @upflowi/store-indexeddb",
+    name: "@upflowi/store-indexeddb",
+    note: "Browser UploadStore backed by IndexedDB.",
+  },
 ] as const;
 
 export const definitions: Array<{
@@ -125,11 +135,12 @@ uploader.start();`,
   {
     code: `import { createUploader } from "@upflowi/core";
 import { createFetchTransport } from "@upflowi/transport-fetch";
+import { createIndexedDbStore } from "@upflowi/store-indexeddb";
 
 const uploader = createUploader({
   provider,
   transport: createFetchTransport(),
-  store: myUploadStore, // implements get/set/delete — three methods
+  store: createIndexedDbStore(),
 });
 
 // A crashed tab or a page reload resumes the same upload;
@@ -156,28 +167,6 @@ const provider = createHttpProvider({
     label: "Custom backend",
     summary:
       "Not S3/R2-compatible? @upflowi/provider-http speaks a small JSON convention.",
-  },
-  {
-    code: `// nest: uploader.provider.ts
-import { createUploader } from "@upflowi/core";
-import { createFetchTransport } from "@upflowi/transport-fetch";
-import { createS3Provider } from "@upflowi/provider-s3";
-
-export const UPLOADER = Symbol("UPLOADER");
-
-export const uploaderProvider = {
-  provide: UPLOADER,
-  useFactory: () =>
-    createUploader({
-      transport: createFetchTransport(),
-      provider: createS3Provider({
-        getPresignedUrl: (op) => presignService.sign(op),
-      }),
-    }),
-};`,
-    id: "nestjs",
-    label: "Framework adapter",
-    summary: "No class, no new — register the factory as a custom provider.",
   },
 ];
 

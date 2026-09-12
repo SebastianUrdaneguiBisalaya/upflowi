@@ -44,6 +44,10 @@ export async function POST(request: Request): Promise<Response> {
     },
     endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
     region: "auto",
+    // Without this, the SDK signs a checksum requirement (e.g. x-amz-checksum-crc32) into the
+    // presigned URL by default. Our client sends the raw XML/bytes with no matching checksum
+    // header, so R2 rejects complete/uploadPart with 400 Bad Request.
+    requestChecksumCalculation: "WHEN_REQUIRED",
   });
 
   const result = await presign(client, config.bucket, operation);

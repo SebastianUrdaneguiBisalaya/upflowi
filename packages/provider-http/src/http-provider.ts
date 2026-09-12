@@ -62,6 +62,7 @@ function assertSuccessful(
       {
         fileId,
         providerCode: String(response.status),
+        retryable: response.status >= 500 || response.status === 429,
       },
     );
   }

@@ -57,12 +57,18 @@ export function createScheduler(config: SchedulerConfig): Scheduler {
     schedule<TResult>(task: () => Promise<TResult>): Promise<TResult> {
       return new Promise<TResult>((resolve, reject) => {
         waiting.push(() => {
-          task()
-            .then(resolve, reject)
-            .finally(() => {
+          task().then(
+            (result) => {
               active -= 1;
               drain();
-            });
+              resolve(result);
+            },
+            (error) => {
+              active -= 1;
+              drain();
+              reject(error);
+            },
+          );
         });
         drain();
       });

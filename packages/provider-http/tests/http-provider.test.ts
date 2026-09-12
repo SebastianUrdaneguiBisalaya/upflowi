@@ -112,6 +112,118 @@ describe("createHttpProvider", () => {
     ).rejects.toBeInstanceOf(ProviderError);
   });
 
+  describe("retryable classification of non-2xx responses", () => {
+    const cases: Array<{
+      status: number;
+      retryable: boolean;
+    }> = [
+      {
+        retryable: true,
+        status: 500,
+      },
+      {
+        retryable: true,
+        status: 502,
+      },
+      {
+        retryable: true,
+        status: 503,
+      },
+      {
+        retryable: true,
+        status: 429,
+      },
+      {
+        retryable: false,
+        status: 400,
+      },
+      {
+        retryable: false,
+        status: 401,
+      },
+      {
+        retryable: false,
+        status: 403,
+      },
+      {
+        retryable: false,
+        status: 404,
+      },
+    ];
+
+    it.each(cases)(
+      "create(): status $status -> retryable=$retryable",
+      async ({ status, retryable }) => {
+        const transport: UploadTransport = {
+          send: async () => jsonResponse(status, {}),
+        };
+        const provider = createHttpProvider({
+          baseUrl: "https://api.example.com",
+        });
+
+        const error = await provider
+          .create("file-1", contextWith(transport))
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ProviderError);
+        expect((error as ProviderError).retryable).toBe(retryable);
+        expect((error as ProviderError).providerCode).toBe(String(status));
+      },
+    );
+
+    it.each(cases)(
+      "uploadPart(): status $status -> retryable=$retryable",
+      async ({ status, retryable }) => {
+        const transport: UploadTransport = {
+          send: async () => ({
+            body: "",
+            headers: {},
+            status,
+          }),
+        };
+        const provider = createHttpProvider({
+          baseUrl: "https://api.example.com",
+        });
+
+        const error = await provider
+          .uploadPart(
+            "upload-1",
+            {
+              end: 10,
+              partNumber: 1,
+              size: 10,
+              start: 0,
+            },
+            "chunk-bytes",
+            contextWith(transport),
+          )
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ProviderError);
+        expect((error as ProviderError).retryable).toBe(retryable);
+      },
+    );
+
+    it.each(cases)(
+      "complete(): status $status -> retryable=$retryable",
+      async ({ status, retryable }) => {
+        const transport: UploadTransport = {
+          send: async () => jsonResponse(status, {}),
+        };
+        const provider = createHttpProvider({
+          baseUrl: "https://api.example.com",
+        });
+
+        const error = await provider
+          .complete("upload-1", [], contextWith(transport))
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ProviderError);
+        expect((error as ProviderError).retryable).toBe(retryable);
+      },
+    );
+  });
+
   it("attaches headers from getHeaders() to every request", async () => {
     const send = vi.fn(
       async (_request: TransportRequest): Promise<TransportResponse> =>

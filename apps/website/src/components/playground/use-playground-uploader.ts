@@ -168,6 +168,7 @@ export function usePlaygroundUploader(config: PlaygroundConfig): {
   });
   const logIdRef = useRef(0);
   const knownFileIdsRef = useRef(new Set<string>());
+  const startedUploaderRef = useRef<Uploader | null>(null);
 
   useEffect(() => {
     setUploads([]);
@@ -219,7 +220,14 @@ export function usePlaygroundUploader(config: PlaygroundConfig): {
         pushLog("allCompleted", payload),
       ),
     ];
-    uploader.start();
+    // React (dev) Strict Mode invokes this effect twice per mount; guard so
+    // uploader.start() — not idempotent — never runs twice on the same
+    // uploader instance, which would double-process its queue and emit
+    // every event twice.
+    if (startedUploaderRef.current !== uploader) {
+      startedUploaderRef.current = uploader;
+      uploader.start();
+    }
 
     return () => {
       for (const unsubscribe of unsubscribes) {

@@ -97,7 +97,7 @@ export function PlaygroundConsole({
           </div>
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <FileDropZone onFiles={addFiles} />
 
           <p className="text-[11px] text-ink-faint">
@@ -108,7 +108,7 @@ export function PlaygroundConsole({
           </p>
 
           {uploads.length > 0 ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2">
               {uploads.map((upload) => (
                 <UploadCard
                   key={upload.fileId}
