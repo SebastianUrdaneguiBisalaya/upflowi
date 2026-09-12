@@ -84,11 +84,11 @@ export function createProgressThrottle(
   function flush(): void {
     timer = undefined;
     lastEmittedAt = Date.now();
-    const progress = pending;
+    // flush() is only ever scheduled right after `pending` is set below, so it
+    // is always defined by the time this timer fires.
+    const progress = pending as GlobalProgress;
     pending = undefined;
-    if (progress !== undefined) {
-      onEmit(progress);
-    }
+    onEmit(progress);
   }
 
   return (progress: GlobalProgress) => {

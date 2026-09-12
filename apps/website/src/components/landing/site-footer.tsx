@@ -9,17 +9,113 @@ const AUTHOR_NAME = "Sebastian Marat Urdanegui Bisalaya";
 
 const YEAR = new Date().getFullYear();
 
-export function SiteFooter() {
+function buildSitemap(showPlayground: boolean) {
+  return [
+    {
+      heading: "Explore",
+      links: [
+        {
+          href: "/docs",
+          label: "Docs",
+        },
+        ...(showPlayground
+          ? [
+              {
+                href: "/playground",
+                label: "Playground",
+              },
+            ]
+          : []),
+        {
+          href: GITHUB_URL,
+          label: "GitHub",
+        },
+      ],
+    },
+    {
+      heading: "On this page",
+      links: [
+        {
+          href: "/#definitions",
+          label: "What it is",
+        },
+        {
+          href: "/#architecture",
+          label: "Architecture",
+        },
+        {
+          href: "/#packages",
+          label: "Packages",
+        },
+        {
+          href: "/#quickstart",
+          label: "Quickstart",
+        },
+        {
+          href: "/#use-cases",
+          label: "Use cases",
+        },
+        {
+          href: "/#types",
+          label: "Types",
+        },
+      ],
+    },
+  ];
+}
+
+export function SiteFooter({
+  showPlayground = false,
+}: {
+  showPlayground?: boolean;
+} = {}) {
+  const sitemap = buildSitemap(showPlayground);
   return (
-    <footer className="relative overflow-hidden bg-bg">
+    <footer
+      className="relative overflow-hidden bg-bg"
+      id="footer"
+    >
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 bg-[url('/bg-granito.jpg')] bg-cover bg-center opacity-[0.07] mix-blend-multiply grayscale mask-[linear-gradient(to_bottom,transparent,black_180px)] dark:opacity-[0.10] dark:mix-blend-screen"
       />
 
       <div className="relative mx-auto max-w-205 px-6 pt-12 sm:px-8 sm:pt-14 @container">
+        <div className="flex flex-col border-b border-line pb-10 gap-8">
+          {sitemap.map((group) => (
+            <div
+              className="flex flex-col gap-4"
+              key={group.heading}
+            >
+              <span className="font-mono text-[10.5px] uppercase tracking-wide text-ink-faint">
+                {group.heading}
+              </span>
+              <ul className="flex flex-row items-center gap-8">
+                {group.links.map((link) => (
+                  <li key={link.href}>
+                    <a
+                      className="font-mono text-[12px] text-ink-soft transition-colors duration-200 hover:text-ink"
+                      href={link.href}
+                      rel={
+                        link.href.startsWith("http")
+                          ? "noreferrer noopener"
+                          : undefined
+                      }
+                      target={
+                        link.href.startsWith("http") ? "_blank" : undefined
+                      }
+                    >
+                      {link.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
         <motion.div
-          className="flex flex-col gap-5 pb-10 sm:flex-row sm:items-baseline sm:justify-between"
+          className="flex flex-col gap-5 pb-10 pt-10 sm:flex-row sm:items-baseline sm:justify-between"
           initial={{
             opacity: 0,
             y: 10,

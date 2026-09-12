@@ -117,6 +117,13 @@ export class UploadValidationError extends UploadError {
 export type ProviderErrorOptions = UploadErrorOptions & {
   /** The storage provider's own error code, if it exposes one, kept for debugging. */
   providerCode?: string;
+  /**
+   * Whether this specific failure is transient and worth retrying (e.g. the provider's HTTP
+   * response was a 5xx or 429). Defaults to `false` — a provider rejecting an operation is
+   * presumed permanent (bad request shape, invalid part, expired upload id, ...) unless the
+   * provider package can tell it apart from the underlying response status.
+   */
+  retryable?: boolean;
 };
 
 /** A storage provider rejected an operation (e.g. S3 failed to complete a multipart upload). */
@@ -124,7 +131,7 @@ export class ProviderError extends UploadError {
   readonly providerCode: string | undefined;
 
   constructor(message: string, options: ProviderErrorOptions = {}) {
-    super("PROVIDER_ERROR", message, false, options);
+    super("PROVIDER_ERROR", message, options.retryable ?? false, options);
     this.providerCode = options.providerCode;
   }
 }

@@ -83,6 +83,16 @@ describe("state machine", () => {
     }
   });
 
+  it("throws UploadValidationError with no fileId when none is given", () => {
+    try {
+      assertTransition("cancelled", "uploading");
+      throw new Error("expected assertTransition to throw");
+    } catch (caught) {
+      expect(caught).toBeInstanceOf(UploadValidationError);
+      expect((caught as UploadValidationError).fileId).toBeUndefined();
+    }
+  });
+
   it("has no terminal state that transitions anywhere except failed -> queued", () => {
     expect(canTransition("completed", "queued")).toBe(false);
     expect(canTransition("cancelled", "queued")).toBe(false);

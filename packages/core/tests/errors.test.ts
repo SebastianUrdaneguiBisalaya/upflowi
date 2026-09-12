@@ -41,6 +41,15 @@ describe("upload errors", () => {
     expect(new HttpError(429, "rate limited").retryable).toBe(true);
   });
 
+  it("ProviderError defaults to permanent, but can be marked retryable", () => {
+    expect(new ProviderError("provider said no").retryable).toBe(false);
+    expect(
+      new ProviderError("temporarily unavailable", {
+        retryable: true,
+      }).retryable,
+    ).toBe(true);
+  });
+
   it("RetryExhaustedError records the number of attempts made", () => {
     const error = new RetryExhaustedError("all attempts failed", {
       attempts: 5,

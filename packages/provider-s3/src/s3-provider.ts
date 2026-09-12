@@ -1,4 +1,5 @@
 import {
+  type ChecksumAlgorithm,
   type ChunkRange,
   type ProviderCompleteResult,
   type ProviderCreateResult,
@@ -13,6 +14,53 @@ import {
   UploadValidationError,
 } from "@upflowi/core";
 import { escapeXmlText, extractXmlBlocks, extractXmlTag } from "./xml.js";
+
+/**
+ * S3's "additional checksums" feature (declared at `CreateMultipartUpload`, verified per part,
+ * echoed back into `CompleteMultipartUpload`) only covers SHA-256 and CRC32. MD5 instead uses the
+ * older, separate `Content-MD5` mechanism, which needs no declaration up front and never appears
+ * in the `CompleteMultipartUpload` body — see
+ * https://docs.aws.amazon.com/AmazonS3/latest/userguide/tutorial-s3-mpu-additional-checksums.html.
+ */
+type AdditionalChecksumAlgorithm = Extract<
+  ChecksumAlgorithm,
+  "SHA-256" | "CRC32"
+>;
+
+function isAdditionalChecksumAlgorithm(
+  algorithm: ChecksumAlgorithm,
+): algorithm is AdditionalChecksumAlgorithm {
+  return algorithm === "SHA-256" || algorithm === "CRC32";
+}
+
+/** The `x-amz-checksum-*` header S3 expects the (base64) checksum value under, per algorithm. */
+function checksumHeaderName(algorithm: ChecksumAlgorithm): string {
+  return algorithm === "MD5"
+    ? "content-md5"
+    : `x-amz-checksum-${algorithm.toLowerCase().replace("-", "")}`;
+}
+
+/** The `<Checksum...>` tag S3 expects inside `CompleteMultipartUpload`'s `<Part>` body, per algorithm. */
+function checksumXmlTag(algorithm: AdditionalChecksumAlgorithm): string {
+  return algorithm === "SHA-256" ? "ChecksumSHA256" : "ChecksumCRC32";
+}
+
+/** Reads the full byte content of a {@link TransportRequestBody}, regardless of its concrete shape. */
+async function toArrayBuffer(body: TransportRequestBody): Promise<ArrayBuffer> {
+  if (typeof body === "string") {
+    return new TextEncoder().encode(body).buffer as ArrayBuffer;
+  }
+  if (body instanceof Blob) {
+    return body.arrayBuffer();
+  }
+  if (body instanceof ArrayBuffer) {
+    return body;
+  }
+  return body.buffer.slice(
+    body.byteOffset,
+    body.byteOffset + body.byteLength,
+  ) as ArrayBuffer;
+}
 
 /** One presigned request: the URL your backend signed, plus any headers it signed alongside it. */
 export type S3PresignedRequest = {
@@ -29,6 +77,13 @@ export type S3PresignedUrlOperation =
   | {
       readonly type: "create";
       readonly fileId: string;
+      /**
+       * Set when the consumer configured a {@link ChecksumComputer} using SHA-256 or CRC32 — S3
+       * requires the algorithm to be declared as `ChecksumAlgorithm` on `CreateMultipartUpload`
+       * (via `getSignedUrl`/`CreateMultipartUploadCommand`) before any part's checksum header is
+       * honored. Not set for MD5 (the older `Content-MD5` mechanism needs no such declaration).
+       */
+      readonly checksumAlgorithm?: "SHA-256" | "CRC32";
     }
   | {
       readonly type: "uploadPart";
@@ -101,6 +156,7 @@ function assertSuccessful(
       {
         fileId,
         providerCode: String(response.status),
+        retryable: response.status >= 500 || response.status === 429,
       },
     );
   }
@@ -108,17 +164,29 @@ function assertSuccessful(
 
 function buildCompleteMultipartUploadBody(
   parts: readonly ProviderPartResult[],
+  additionalChecksumAlgorithm: AdditionalChecksumAlgorithm | undefined,
 ): string {
+  const tag = additionalChecksumAlgorithm
+    ? checksumXmlTag(additionalChecksumAlgorithm)
+    : undefined;
   const partsXml = parts
     .map(
       (part) =>
-        `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>${escapeXmlText(part.etag)}</ETag></Part>`,
+        `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>${escapeXmlText(part.etag)}</ETag>${
+          tag && part.checksum
+            ? `<${tag}>${escapeXmlText(part.checksum)}</${tag}>`
+            : ""
+        }</Part>`,
     )
     .join("");
   return `<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUpload>${partsXml}</CompleteMultipartUpload>`;
 }
 
-function parsePart(block: string, fileId: string): ProviderPartResult {
+function parsePart(
+  block: string,
+  fileId: string,
+  additionalChecksumAlgorithm: AdditionalChecksumAlgorithm | undefined,
+): ProviderPartResult {
   const partNumberText = extractXmlTag(block, "PartNumber");
   const etag = extractXmlTag(block, "ETag");
   const sizeText = extractXmlTag(block, "Size");
@@ -139,10 +207,19 @@ function parsePart(block: string, fileId: string): ProviderPartResult {
     );
   }
 
+  const checksum = additionalChecksumAlgorithm
+    ? extractXmlTag(block, checksumXmlTag(additionalChecksumAlgorithm))
+    : undefined;
+
   return {
     etag,
     partNumber,
     sizeBytes,
+    ...(checksum
+      ? {
+          checksum,
+        }
+      : {}),
   };
 }
 
@@ -199,8 +276,16 @@ export function createS3Provider(config: S3ProviderConfig): StorageProvider {
         type: "complete",
         uploadId: providerUploadId,
       });
+      const additionalChecksumAlgorithm =
+        context.checksum &&
+        isAdditionalChecksumAlgorithm(context.checksum.algorithm)
+          ? context.checksum.algorithm
+          : undefined;
       const response = await transport.send({
-        body: buildCompleteMultipartUploadBody(parts),
+        body: buildCompleteMultipartUploadBody(
+          parts,
+          additionalChecksumAlgorithm,
+        ),
         headers: {
           "content-type": "application/xml",
           ...presigned.headers,
@@ -233,9 +318,19 @@ export function createS3Provider(config: S3ProviderConfig): StorageProvider {
 
     async create(fileId, context): Promise<ProviderCreateResult> {
       const transport = requireTransport(context);
+      const additionalChecksumAlgorithm =
+        context.checksum &&
+        isAdditionalChecksumAlgorithm(context.checksum.algorithm)
+          ? context.checksum.algorithm
+          : undefined;
       const presigned = await config.getPresignedUrl({
         fileId,
         type: "create",
+        ...(additionalChecksumAlgorithm
+          ? {
+              checksumAlgorithm: additionalChecksumAlgorithm,
+            }
+          : {}),
       });
       const response = await transport.send({
         ...(presigned.headers
@@ -298,8 +393,13 @@ export function createS3Provider(config: S3ProviderConfig): StorageProvider {
       }
       assertSuccessful(response, "list parts", fileId);
 
+      const additionalChecksumAlgorithm =
+        context.checksum &&
+        isAdditionalChecksumAlgorithm(context.checksum.algorithm)
+          ? context.checksum.algorithm
+          : undefined;
       const completedParts = extractXmlBlocks(response.body, "Part").map(
-        (block) => parsePart(block, fileId),
+        (block) => parsePart(block, fileId, additionalChecksumAlgorithm),
       );
       return {
         completedParts,
@@ -320,13 +420,19 @@ export function createS3Provider(config: S3ProviderConfig): StorageProvider {
         type: "uploadPart",
         uploadId: providerUploadId,
       });
+      const checksumValue = context.checksum
+        ? await context.checksum.compute(await toArrayBuffer(body))
+        : undefined;
       const response = await transport.send({
         body,
-        ...(presigned.headers
-          ? {
-              headers: presigned.headers,
-            }
-          : {}),
+        headers: {
+          ...presigned.headers,
+          ...(checksumValue && context.checksum
+            ? {
+                [checksumHeaderName(context.checksum.algorithm)]: checksumValue,
+              }
+            : {}),
+        },
         method: "PUT",
         ...(context.signal
           ? {
@@ -355,6 +461,13 @@ export function createS3Provider(config: S3ProviderConfig): StorageProvider {
         etag,
         partNumber: chunk.partNumber,
         sizeBytes: chunk.size,
+        ...(checksumValue &&
+        context.checksum &&
+        isAdditionalChecksumAlgorithm(context.checksum.algorithm)
+          ? {
+              checksum: checksumValue,
+            }
+          : {}),
       };
     },
   };

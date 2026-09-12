@@ -95,6 +95,98 @@ describe("createR2Provider", () => {
     ).rejects.toBeInstanceOf(ProviderError);
   });
 
+  describe("retryable classification of non-2xx responses", () => {
+    const cases: Array<{
+      status: number;
+      retryable: boolean;
+    }> = [
+      {
+        retryable: true,
+        status: 500,
+      },
+      {
+        retryable: true,
+        status: 503,
+      },
+      {
+        retryable: true,
+        status: 429,
+      },
+      {
+        retryable: false,
+        status: 400,
+      },
+      {
+        retryable: false,
+        status: 403,
+      },
+      {
+        retryable: false,
+        status: 404,
+      },
+    ];
+    const provider = createR2Provider({
+      getPresignedUrl: async () => ({
+        url: "https://r2.example/x",
+      }),
+    });
+
+    it.each(cases)(
+      "create(): status $status -> retryable=$retryable",
+      async ({ status, retryable }) => {
+        const transport: UploadTransport = {
+          send: async () => xmlResponse(status, "<Error/>"),
+        };
+        const error = await provider
+          .create("file-1", contextWith(transport))
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ProviderError);
+        expect((error as ProviderError).retryable).toBe(retryable);
+      },
+    );
+
+    it.each(cases)(
+      "uploadPart(): status $status -> retryable=$retryable",
+      async ({ status, retryable }) => {
+        const transport: UploadTransport = {
+          send: async () => xmlResponse(status, "<Error/>"),
+        };
+        const error = await provider
+          .uploadPart(
+            "upload-1",
+            {
+              end: 10,
+              partNumber: 1,
+              size: 10,
+              start: 0,
+            },
+            "chunk-bytes",
+            contextWith(transport),
+          )
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ProviderError);
+        expect((error as ProviderError).retryable).toBe(retryable);
+      },
+    );
+
+    it.each(cases)(
+      "complete(): status $status -> retryable=$retryable",
+      async ({ status, retryable }) => {
+        const transport: UploadTransport = {
+          send: async () => xmlResponse(status, "<Error/>"),
+        };
+        const error = await provider
+          .complete("upload-1", [], contextWith(transport))
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ProviderError);
+        expect((error as ProviderError).retryable).toBe(retryable);
+      },
+    );
+  });
+
   it("uploadPart() requests a part-specific presigned URL and reads the ETag response header", async () => {
     const send = vi.fn(
       async (_request: TransportRequest): Promise<TransportResponse> =>
@@ -293,5 +385,107 @@ describe("createR2Provider", () => {
     await expect(
       provider.create("file-1", contextWith(undefined)),
     ).rejects.toBeInstanceOf(UploadValidationError);
+  });
+
+  describe("checksum (R2 only supports Content-MD5)", () => {
+    it("uploadPart() sends content-md5 when checksum algorithm is MD5", async () => {
+      const send = vi.fn(
+        async (_request: TransportRequest): Promise<TransportResponse> =>
+          xmlResponse(200, "", {
+            ETag: '"e1"',
+          }),
+      );
+      const provider = createR2Provider({
+        getPresignedUrl: async () => ({
+          url: "https://r2.example/part",
+        }),
+      });
+
+      await provider.uploadPart(
+        "u1",
+        {
+          end: 10,
+          partNumber: 1,
+          size: 10,
+          start: 0,
+        },
+        "hello",
+        {
+          checksum: {
+            algorithm: "MD5",
+            compute: async () => "base64-md5-value",
+          },
+          fileId: "file-1",
+          transport: {
+            send,
+          },
+        },
+      );
+
+      const request = send.mock.calls[0]?.[0] as TransportRequest;
+      expect(request.headers?.["content-md5"]).toBe("base64-md5-value");
+    });
+
+    it("uploadPart() throws UploadValidationError for SHA-256 (R2 doesn't support additional checksums)", async () => {
+      const provider = createR2Provider({
+        getPresignedUrl: async () => ({
+          url: "https://r2.example/part",
+        }),
+      });
+
+      await expect(
+        provider.uploadPart(
+          "u1",
+          {
+            end: 10,
+            partNumber: 1,
+            size: 10,
+            start: 0,
+          },
+          "hello",
+          {
+            checksum: {
+              algorithm: "SHA-256",
+              compute: async () => "unused",
+            },
+            fileId: "file-1",
+            transport: {
+              send: async () => xmlResponse(200, ""),
+            },
+          },
+        ),
+      ).rejects.toBeInstanceOf(UploadValidationError);
+    });
+
+    it("uploadPart() throws UploadValidationError for CRC32 (R2 doesn't support additional checksums)", async () => {
+      const provider = createR2Provider({
+        getPresignedUrl: async () => ({
+          url: "https://r2.example/part",
+        }),
+      });
+
+      await expect(
+        provider.uploadPart(
+          "u1",
+          {
+            end: 10,
+            partNumber: 1,
+            size: 10,
+            start: 0,
+          },
+          "hello",
+          {
+            checksum: {
+              algorithm: "CRC32",
+              compute: async () => "unused",
+            },
+            fileId: "file-1",
+            transport: {
+              send: async () => xmlResponse(200, ""),
+            },
+          },
+        ),
+      ).rejects.toBeInstanceOf(UploadValidationError);
+    });
   });
 });

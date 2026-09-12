@@ -1,0 +1,70 @@
+{
+  "name": "@upflowi/store-indexeddb",
+  "version": "0.1.0",
+  "description": "Browser IndexedDB UploadStore for upflowi — resume state survives a page reload or a crashed tab.",
+  "keywords": [
+    "upload",
+    "file-transfer",
+    "store",
+    "indexeddb",
+    "typescript",
+    "esm",
+    "cjs"
+  ],
+  "license": "ISC",
+  "author": "Sebastian Marat Urdanegui Bisalaya <sebasurdanegui@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SebastianUrdaneguiBisalaya/upflowi.git",
+    "directory": "packages/store-indexeddb"
+  },
+  "homepage": "https://github.com/SebastianUrdaneguiBisalaya/upflowi/tree/main/packages/store-indexeddb#readme",
+  "bugs": "https://github.com/SebastianUrdaneguiBisalaya/upflowi/issues",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.3.4"
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "peerDependencies": {
+    "@upflowi/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@upflowi/core": "workspace:*",
+    "fake-indexeddb": "6.0.0",
+    "tsup": "8.5.1",
+    "tsx": "4.23.13",
+    "typescript": "5.7.3",
+    "vitest": "4.1.11"
+  }
+}

@@ -1,3 +1,4 @@
+import type { ChecksumComputer } from "./checksum.js";
 import type { ChunkRange } from "./chunking.js";
 import { iterateChunks } from "./chunking.js";
 import {
@@ -50,6 +51,11 @@ export type UploadOptions = {
   /** Used instead of the uploader-level store to persist/resume multipart progress for this file. */
   store?: UploadStore;
   metadata?: Readonly<Record<string, string>>;
+  /**
+   * Used instead of the uploader-level checksum computer for this file's multipart transfer.
+   * See {@link UploaderConfig.checksum} for what it's for and how a provider uses it.
+   */
+  checksum?: ChecksumComputer;
 };
 
 /** The outcome of a successfully completed upload. */
@@ -68,6 +74,7 @@ export type UploadDependencies = {
   transport?: UploadTransport;
   provider?: StorageProvider;
   store?: UploadStore;
+  checksum?: ChecksumComputer;
 };
 
 /** The public per-file handle returned by {@link Uploader.add}. */
@@ -102,6 +109,7 @@ export function createUpload(
   const provider = options.provider ?? dependencies.provider;
   const chunkSize = options.chunkSize ?? dependencies.chunkSize;
   const store = options.store ?? dependencies.store;
+  const checksum = options.checksum ?? dependencies.checksum;
   const retryConfig = dependencies.retryConfig;
 
   const emitter = createEventEmitter<UploadEventMap>();
@@ -229,6 +237,11 @@ export function createUpload(
       ...(activeTransport
         ? {
             transport: activeTransport,
+          }
+        : {}),
+      ...(checksum
+        ? {
+            checksum,
           }
         : {}),
       signal: controller.signal,

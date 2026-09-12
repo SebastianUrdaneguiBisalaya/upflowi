@@ -13,8 +13,14 @@
     "cjs"
   ],
   "license": "ISC",
-  "author": "",
-  "private": true,
+  "author": "Sebastian Marat Urdanegui Bisalaya <sebasurdanegui@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SebastianUrdaneguiBisalaya/upflowi.git",
+    "directory": "packages/provider-http"
+  },
+  "homepage": "https://github.com/SebastianUrdaneguiBisalaya/upflowi/tree/main/packages/provider-http#readme",
+  "bugs": "https://github.com/SebastianUrdaneguiBisalaya/upflowi/issues",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",

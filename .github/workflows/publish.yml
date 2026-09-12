@@ -1,20 +1,25 @@
 name: Publish to npm
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
-  publish:
+  release:
     if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
       id-token: write # required for npm provenance
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -42,20 +47,18 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Check if this version is already published
-        id: version-check
-        run: |
-          PKG_NAME=$(node -p "require('./packages/core/package.json').name")
-          PKG_VERSION=$(node -p "require('./packages/core/package.json').version")
-          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish to npm
-        if: steps.version-check.outputs.published == 'false'
-        working-directory: packages/core
-        run: pnpm publish --access public --no-git-checks --provenance
+      # Two outcomes, depending on whether unreleased changesets exist:
+      # - pending changesets → opens/updates a "Version Packages" PR that
+      #   applies the version bumps and changelogs (nothing is published yet)
+      # - no pending changesets (i.e. that PR was just merged) → runs the
+      #   publish script, which builds and publishes every package whose
+      #   version isn't on npm yet
+      - name: Version or publish
+        uses: changesets/action@v1
+        with:
+          version: pnpm run version-packages
+          publish: pnpm run release
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

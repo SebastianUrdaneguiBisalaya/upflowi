@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ArrowDownIcon } from "@/components/theme/theme-icons";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Reveal } from "@/components/ui/reveal";
@@ -43,13 +44,13 @@ export function Hero() {
               value={INSTALL}
             />
           </div>
-          <a
+          <Link
             className="inline-flex items-center gap-2 font-mono text-[12.5px] text-ink-faint transition-colors duration-200 hover:text-ink"
             href="#quickstart"
           >
             Read the quickstart
             <ArrowDownIcon className="h-3.5 w-3.5" />
-          </a>
+          </Link>
         </div>
       </Reveal>
     </section>

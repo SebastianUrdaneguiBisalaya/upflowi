@@ -19,7 +19,7 @@ export function UseCases({ items }: { items: UseCase[] }) {
             <button
               aria-pressed={isActive}
               className={cn(
-                "relative pb-2 font-mono text-[12px] tracking-wide transition-colors duration-200",
+                "relative pb-2 font-mono text-[12px] tracking-wide transition-colors duration-200 cursor-pointer",
                 isActive ? "text-ink" : "text-ink-faint hover:text-ink-soft",
               )}
               key={item.id}

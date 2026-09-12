@@ -112,6 +112,118 @@ describe("createHttpProvider", () => {
     ).rejects.toBeInstanceOf(ProviderError);
   });
 
+  describe("retryable classification of non-2xx responses", () => {
+    const cases: Array<{
+      status: number;
+      retryable: boolean;
+    }> = [
+      {
+        retryable: true,
+        status: 500,
+      },
+      {
+        retryable: true,
+        status: 502,
+      },
+      {
+        retryable: true,
+        status: 503,
+      },
+      {
+        retryable: true,
+        status: 429,
+      },
+      {
+        retryable: false,
+        status: 400,
+      },
+      {
+        retryable: false,
+        status: 401,
+      },
+      {
+        retryable: false,
+        status: 403,
+      },
+      {
+        retryable: false,
+        status: 404,
+      },
+    ];
+
+    it.each(cases)(
+      "create(): status $status -> retryable=$retryable",
+      async ({ status, retryable }) => {
+        const transport: UploadTransport = {
+          send: async () => jsonResponse(status, {}),
+        };
+        const provider = createHttpProvider({
+          baseUrl: "https://api.example.com",
+        });
+
+        const error = await provider
+          .create("file-1", contextWith(transport))
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ProviderError);
+        expect((error as ProviderError).retryable).toBe(retryable);
+        expect((error as ProviderError).providerCode).toBe(String(status));
+      },
+    );
+
+    it.each(cases)(
+      "uploadPart(): status $status -> retryable=$retryable",
+      async ({ status, retryable }) => {
+        const transport: UploadTransport = {
+          send: async () => ({
+            body: "",
+            headers: {},
+            status,
+          }),
+        };
+        const provider = createHttpProvider({
+          baseUrl: "https://api.example.com",
+        });
+
+        const error = await provider
+          .uploadPart(
+            "upload-1",
+            {
+              end: 10,
+              partNumber: 1,
+              size: 10,
+              start: 0,
+            },
+            "chunk-bytes",
+            contextWith(transport),
+          )
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ProviderError);
+        expect((error as ProviderError).retryable).toBe(retryable);
+      },
+    );
+
+    it.each(cases)(
+      "complete(): status $status -> retryable=$retryable",
+      async ({ status, retryable }) => {
+        const transport: UploadTransport = {
+          send: async () => jsonResponse(status, {}),
+        };
+        const provider = createHttpProvider({
+          baseUrl: "https://api.example.com",
+        });
+
+        const error = await provider
+          .complete("upload-1", [], contextWith(transport))
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ProviderError);
+        expect((error as ProviderError).retryable).toBe(retryable);
+      },
+    );
+  });
+
   it("attaches headers from getHeaders() to every request", async () => {
     const send = vi.fn(
       async (_request: TransportRequest): Promise<TransportResponse> =>
@@ -200,6 +312,117 @@ describe("createHttpProvider", () => {
 
     const request = send.mock.calls[0]?.[0] as TransportRequest;
     expect(request.headers?.["content-type"]).toBe("application/octet-stream");
+  });
+
+  it("uploadPart() attaches checksum headers when context.checksum is set", async () => {
+    const send = vi.fn(
+      async (_request: TransportRequest): Promise<TransportResponse> =>
+        jsonResponse(200, {
+          etag: "e1",
+        }),
+    );
+    const provider = createHttpProvider({
+      baseUrl: "https://api.example.com",
+    });
+
+    await provider.uploadPart(
+      "u1",
+      {
+        end: 10,
+        partNumber: 1,
+        size: 10,
+        start: 0,
+      },
+      "hello",
+      {
+        checksum: {
+          algorithm: "SHA-256",
+          compute: async (data) => `computed:${data.byteLength}`,
+        },
+        fileId: "file-1",
+        transport: {
+          send,
+        },
+      },
+    );
+
+    const request = send.mock.calls[0]?.[0] as TransportRequest;
+    expect(request.headers?.["x-upflowi-checksum-algorithm"]).toBe("SHA-256");
+    // "hello" is 5 bytes as UTF-8.
+    expect(request.headers?.["x-upflowi-checksum-value"]).toBe("computed:5");
+  });
+
+  it("uploadPart() sends no checksum headers when context.checksum is unset", async () => {
+    const send = vi.fn(
+      async (_request: TransportRequest): Promise<TransportResponse> =>
+        jsonResponse(200, {
+          etag: "e1",
+        }),
+    );
+    const provider = createHttpProvider({
+      baseUrl: "https://api.example.com",
+    });
+
+    await provider.uploadPart(
+      "u1",
+      {
+        end: 10,
+        partNumber: 1,
+        size: 10,
+        start: 0,
+      },
+      "hello",
+      contextWith({
+        send,
+      }),
+    );
+
+    const request = send.mock.calls[0]?.[0] as TransportRequest;
+    expect(request.headers?.["x-upflowi-checksum-algorithm"]).toBeUndefined();
+    expect(request.headers?.["x-upflowi-checksum-value"]).toBeUndefined();
+  });
+
+  it("uploadPart() computes the checksum over a Blob body's real bytes", async () => {
+    const send = vi.fn(
+      async (_request: TransportRequest): Promise<TransportResponse> =>
+        jsonResponse(200, {
+          etag: "e1",
+        }),
+    );
+    const provider = createHttpProvider({
+      baseUrl: "https://api.example.com",
+    });
+    const seenByteLengths: number[] = [];
+
+    await provider.uploadPart(
+      "u1",
+      {
+        end: 10,
+        partNumber: 1,
+        size: 10,
+        start: 0,
+      },
+      new Blob([
+        "hello world",
+      ]),
+      {
+        checksum: {
+          algorithm: "CRC32",
+          compute: async (data) => {
+            seenByteLengths.push(data.byteLength);
+            return "crc";
+          },
+        },
+        fileId: "file-1",
+        transport: {
+          send,
+        },
+      },
+    );
+
+    expect(seenByteLengths).toEqual([
+      11,
+    ]);
   });
 
   it("uploadPart() lets getHeaders() override the default content-type", async () => {

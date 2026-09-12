@@ -55,6 +55,12 @@ export function Architecture() {
         <code className="text-ink-soft">queue.ts</code> — if it does, the
         abstraction leaked.
       </p>
+
+      <p className="mt-3 max-w-[62ch] text-[13px] leading-[1.7] text-ink-faint">
+        The same boundary covers access control: whether an upload ends up
+        public or private is your backend&apos;s call when it signs the URL —
+        upflowi has no ACL concept, and it never serves a file back.
+      </p>
     </div>
   );
 }

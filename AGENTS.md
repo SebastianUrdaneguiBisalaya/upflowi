@@ -73,15 +73,22 @@ This is achieved by:
 
 ### CI publish flow (`.github/workflows/publish.yml`)
 
-- **Trigger**: a GitHub Release being published (`release: types: [published]`). Merging to `main` does **not** publish anything by itself — publishing is a separate, deliberate step: bump `version` in `package.json` (following semver, see section 4), merge that to `main`, then create a GitHub Release (tag matching the new version is recommended, e.g. `v1.2.0`) to trigger the actual npm publish.
-- **Gate**: `typecheck` → `lint` → `test` → `build` must all pass before publishing is attempted.
-- **Version guard**: before publishing, the workflow checks `npm view <name>@<version>` against the current `package.json` version and skips the publish step if that version is already on the registry — a safety net in case a release is edited/republished without a version bump.
+This project versions and publishes every package under `packages/*` independently with [changesets](https://github.com/changesets/changesets) — changing only `@upflowi/provider-s3` never bumps or republishes `@upflowi/core`.
+
+- **Trigger**: every push to `main`. The workflow always runs the gate first, then hands off to `changesets/action`, which does exactly one of two things depending on whether unreleased changesets exist in `.changeset/`:
+  - **Unreleased changesets exist** → opens or updates a "Version Packages" pull request that applies the version bump(s) and changelog entries per affected package. Nothing is published yet — merging to `main` by itself still doesn't publish anything.
+  - **No unreleased changesets** (i.e. that "Version Packages" PR was just merged) → runs the publish script, which builds and publishes every workspace package whose `package.json` version isn't on npm yet.
+- **Adding a changeset**: any PR that changes a published package's behavior must include one — run `pnpm changeset` (see `.changeset/README.md`), pick the affected package(s) and a bump type (see section 4), and commit the generated `.changeset/*.md` file with the PR. A PR with no changeset bumps nothing.
+- **Gate**: `typecheck` → `lint` → `test` → `build` must all pass before versioning or publishing is attempted.
+- **What's excluded**: `apps/website` is listed in `.changeset/config.json`'s `ignore` array — it's never published, so changesets never versions or touches it.
 - **Required GitHub secret**: `NPM_TOKEN`.
-  - Generate it on [npmjs.com](https://www.npmjs.com) → avatar → *Access Tokens* → *Generate New Token* → **Automation** type (this type is meant for CI and bypasses the 2FA-for-publish prompt; it must have publish permission on this package/scope).
+  - Generate it on [npmjs.com](https://www.npmjs.com) → avatar → *Access Tokens* → *Generate New Token* → **Automation** type (this type is meant for CI and bypasses the 2FA-for-publish prompt; it must have publish permission on the `@upflowi` scope).
   - Configure it in GitHub at: repository → **Settings** → **Secrets and variables** → **Actions** → **New repository secret** → name it exactly `NPM_TOKEN`, paste the token value.
   - Never commit this token to the repo or print it in workflow logs.
-- The workflow publishes with `--provenance`, which requires `permissions: id-token: write` (already set in the workflow) and works for public packages published from a public GitHub repo — this gives consumers a verifiable link between the published package and this repo's build.
+- The workflow sets `NPM_CONFIG_PROVENANCE=true` so every publish carries provenance, which requires `permissions: id-token: write` (already set in the workflow) and works for public packages published from a public GitHub repo — this gives consumers a verifiable link between the published package and this repo's build.
+- The workflow also needs `permissions: contents: write` and `pull-requests: write` so `changesets/action` can push the version-bump commit and open/update the "Version Packages" PR; `GITHUB_TOKEN` is the default Actions token, not a secret you create.
 - The `if: ${{ !github.event.repository.fork }}` guard prevents the workflow from publishing from a fork.
+- Every package meant to be published must **not** set `"private": true` in its `package.json` — that field blocks `npm publish` outright, regardless of `publishConfig.access`. Keep `"private": true` only on the workspace root and `apps/website`.
 
 ## 4. Versioning and changes
 
@@ -90,7 +97,7 @@ This is achieved by:
   - `MINOR`: new backwards-compatible functionality.
   - `PATCH`: backwards-compatible fixes.
 - Any change to `src/index.ts` (adding/removing/changing an export) is, by definition, a change to the public surface: treat it with the same care as an API change, not as an internal detail.
-- Keep a `CHANGELOG.md` (or use `changesets`/`release-please` as the project grows) so whoever updates the dependency knows what changed.
+- Versioned with [changesets](https://github.com/changesets/changesets), not by hand and not in lockstep: run `pnpm changeset` in your PR instead of editing a package's `version` field or its changelog directly. Each package keeps its own `CHANGELOG.md`, generated by changesets from the changeset files merged since its last release — never hand-edit it either.
 
 ## 5. Quality and CI
 
@@ -181,17 +188,7 @@ node cjs.cjs
 
 Also open the scratch project in an editor and check that hovering `createUploader` shows the expected types — this catches broken `.d.ts` generation that compiling alone won't.
 
-Alternatively, for faster iteration while actively developing against another local project, use `pnpm link` instead of repacking on every change. If the other project is one of this repo's `examples/*`, no linking is needed at all — they already resolve every `@upflowi/*` package via `workspace:*`.
-
-### Running the examples
-
-`examples/browser-vite` and `examples/server-express` (see their own READMEs for details) depend on the workspace packages via `workspace:*`, so they always run against the current `packages/*` source:
-
-```bash
-pnpm run build                                  # build every package the examples depend on
-pnpm --filter ./examples/server-express run dev
-pnpm --filter ./examples/browser-vite run dev
-```
+Alternatively, for faster iteration while actively developing against another local project, use `pnpm link` instead of repacking on every change.
 
 ### Before opening a pull request
 
@@ -255,7 +252,9 @@ This section replaces the generic "SDK for a third-party API" template with upfl
 
 ## 0. Target environment (per section 8)
 
-**Both.** The core (`packages/core`) is runtime-agnostic (no Browser, no Node.js, no DOM, no React/Next.js assumptions). Runtime-specific code lives only in dedicated adapters/transports (e.g. an XHR transport assumes a browser-like `XMLHttpRequest`, a Node stream source assumes Node). Section 6's server-side-only secret-key rules do **not** apply here in their payments-SDK form: this SDK is not designed to hold a long-lived secret key itself — S3/R2 credentials never reach it. Instead, the SDK consumes **presigned URLs** supplied by the consumer's own backend, so the security boundary is "no AWS/Cloudflare credentials in client code," not "no SDK in client code."
+**Both, but client-side (browser) is the primary target — not a backend framework.** The core (`packages/core`) is runtime-agnostic (no Browser, no Node.js, no DOM, no React/Next.js assumptions), so nothing in it *prevents* running in Node.js, and `@upflowi/transport-fetch` does work there (Node 18+ has native `fetch`). But the reason presigned-URL providers (`@upflowi/provider-s3`/`-r2`) exist at all is to move bytes **directly from the browser to storage**, bypassing the app's backend entirely — running `createUploader` itself inside a backend service (NestJS, Express, or otherwise) to shepherd a browser-originated file defeats that design and just re-introduces the backend as a bottleneck the SDK was built to avoid. Treat any doc, example, or website content that frames upflowi as "usable in your NestJS backend" (running the engine itself server-side) as a bug to fix, not a feature to add.
+
+A backend's *only* role in the primary flow is to expose the presign endpoint `getPresignedUrl` calls (or `@upflowi/provider-http`'s five JSON routes, for a non-S3/R2 backend) — it never imports or instantiates `createUploader`. Whatever else a consumer's backend does — persisting resume state in Redis behind their own `UploadStore`, authenticating the presign request, anything else — is entirely the consumer's own architecture, orthogonal to the SDK and outside its concern. Section 6's server-side-only secret-key rules do **not** apply here in their payments-SDK form: this SDK is not designed to hold a long-lived secret key itself — S3/R2 credentials never reach it. Instead, the SDK consumes **presigned URLs** supplied by the consumer's own backend, so the security boundary is "no AWS/Cloudflare credentials in client code," not "no SDK in client code."
 
 ## 1. Concrete file structure
 
@@ -355,6 +354,10 @@ Retry policy (`retry.ts`) must classify errors into retryable vs. permanent befo
 - Unit tests are mandatory and exhaustive for `scheduler.ts`, `queue.ts`, `retry.ts`, and `state-machine.ts` — these are the core's correctness-critical, provider-agnostic logic.
 - Transport and provider packages get integration-style tests that mock the HTTP layer (never hit real S3/R2/XHR endpoints in CI).
 - Progress/event tests must cover the case of multiple concurrent files and chunks to verify global progress aggregation stays correct under concurrency, not just for a single sequential upload.
+- **Cancellation is a cross-cutting concern, not just a `state-machine.ts` unit test.** `uploader.test.ts` must cover it at the orchestration level, because the bug that matters here only shows up when `Upload.cancel()`, the FIFO/scheduler queue, and the state machine interact — a passing `state-machine.test.ts` alone doesn't catch it:
+  - Cancelling one file mid-transfer must not affect the others — they still reach `completed`, and `Uploader`'s `failed` count must not include the cancelled file.
+  - Cancelling a file that is still waiting behind the concurrency limit (added, but the scheduler hasn't invoked it yet) must prevent it from ever calling `execute()` — `runUpload` in `uploader.ts` checks `handle.status !== "cancelled"` immediately before invoking `execute()` for exactly this reason: a queued upload's status is already `"cancelled"`, and `cancelled` has no legal outgoing transitions in `state-machine.ts`, so calling `execute()` on it throws trying to move to `"uploading"`. Skip it instead of executing it.
+  - Cancelling a file added before `start()` was ever called (still sitting in the pre-start FIFO in `queue.ts`) must be excluded once `start()` runs, without disturbing the other queued files.
 
 ## 8. Documentation for consumers
 
