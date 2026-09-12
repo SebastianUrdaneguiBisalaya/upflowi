@@ -34,10 +34,10 @@ export function createScheduler(config: SchedulerConfig): Scheduler {
   const waiting: Array<() => void> = [];
 
   function drain(): void {
-    while (active < concurrency && waiting.length > 0) {
+    while (active < concurrency) {
       const run = waiting.shift();
       if (run === undefined) {
-        break;
+        return;
       }
       active += 1;
       run();

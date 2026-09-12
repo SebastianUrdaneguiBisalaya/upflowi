@@ -13,6 +13,7 @@
     "format": "biome format --write .",
     "test": "pnpm --filter './packages/*' run test",
     "test:watch": "pnpm --filter ./packages/core run test:watch",
+    "test:coverage": "pnpm --filter './packages/*' exec vitest run --coverage",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm run build && changeset publish",

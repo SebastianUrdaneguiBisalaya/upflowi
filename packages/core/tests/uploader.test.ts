@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { NetworkError, UploadValidationError } from "../src/errors.js";
+import {
+  HttpError,
+  NetworkError,
+  UploadValidationError,
+} from "../src/errors.js";
 import type { FileProgress } from "../src/progress.js";
 import type {
   ProviderCompleteResult,
@@ -419,6 +423,377 @@ describe("createUploader — multipart provider mode", () => {
       4,
       5,
     ]);
+  });
+});
+
+describe("createUploader — registration and lifecycle controls", () => {
+  it("throws when adding a file whose fileId was already registered", () => {
+    const transport: UploadTransport = {
+      send: async () => ({
+        body: "",
+        headers: {},
+        status: 200,
+      }),
+    };
+    const uploader = createUploader({
+      transport,
+    });
+    uploader.add({
+      options: {
+        url: "https://example.test/dup",
+      },
+      source: createSource("dup", 10),
+    });
+
+    expect(() =>
+      uploader.add({
+        options: {
+          url: "https://example.test/dup",
+        },
+        source: createSource("dup", 10),
+      }),
+    ).toThrow(UploadValidationError);
+  });
+
+  it("runs a file immediately when it's added after start() was already called", async () => {
+    const executed: string[] = [];
+    const transport: UploadTransport = {
+      send: async (request: TransportRequest): Promise<TransportResponse> => {
+        executed.push(request.url);
+        return {
+          body: "",
+          headers: {},
+          status: 200,
+        };
+      },
+    };
+    const uploader = createUploader({
+      transport,
+    });
+    uploader.start();
+
+    const upload = uploader.add({
+      options: {
+        url: "https://example.test/late",
+      },
+      source: createSource("late", 10),
+    });
+
+    await waitFor(() => upload.status === "completed");
+    expect(executed).toEqual([
+      "https://example.test/late",
+    ]);
+  });
+
+  it("addMany registers every file, and uploader.cancel()/getters cover the whole batch", async () => {
+    const executed: string[] = [];
+    const transport: UploadTransport = {
+      send: async (request: TransportRequest): Promise<TransportResponse> => {
+        executed.push(request.url);
+        return {
+          body: "",
+          headers: {},
+          status: 200,
+        };
+      },
+    };
+    const uploader = createUploader({
+      transport,
+    });
+
+    const uploads = uploader.addMany([
+      {
+        options: {
+          url: "https://example.test/a",
+        },
+        source: createSource("a", 10),
+      },
+      {
+        options: {
+          url: "https://example.test/b",
+        },
+        source: createSource("b", 10),
+      },
+    ]);
+
+    expect(uploads).toHaveLength(2);
+    expect(uploader.size).toBe(2);
+    expect(uploader.pending).toBe(2);
+    expect(uploads[0]?.fileId).toBe("a");
+
+    uploader.cancel();
+    expect(uploads.every((upload) => upload.status === "cancelled")).toBe(true);
+
+    const allCompleted = new Promise<void>((resolve) => {
+      uploader.on("allCompleted", () => resolve());
+    });
+    uploader.start();
+    await allCompleted;
+
+    expect(executed).toEqual([]);
+    expect(uploader.completed).toBe(0);
+    expect(uploader.failed).toBe(0);
+    expect(uploader.active).toBe(0);
+    expect(uploader.pending).toBe(0);
+  });
+
+  it("uploader.pause() and uploader.resume() propagate to every in-flight file", async () => {
+    const transport: UploadTransport = {
+      send: async (): Promise<TransportResponse> => {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        return {
+          body: "",
+          headers: {},
+          status: 200,
+        };
+      },
+    };
+    const uploader = createUploader({
+      concurrency: 2,
+      transport,
+    });
+
+    let startedCount = 0;
+    uploader.on("started", () => {
+      startedCount += 1;
+      if (startedCount === 2) {
+        uploader.pause();
+      }
+    });
+
+    const uploads = uploader.addMany([
+      {
+        options: {
+          url: "https://example.test/pause-a",
+        },
+        source: createSource("pause-a", 10),
+      },
+      {
+        options: {
+          url: "https://example.test/pause-b",
+        },
+        source: createSource("pause-b", 10),
+      },
+    ]);
+
+    const allCompleted = new Promise<void>((resolve) => {
+      uploader.on("allCompleted", () => resolve());
+    });
+
+    uploader.start();
+    await waitFor(() => uploads.every((upload) => upload.status === "paused"));
+    uploader.resume();
+    await allCompleted;
+
+    expect(uploads.every((upload) => upload.status === "completed")).toBe(true);
+  });
+
+  it("cancelling an already-completed upload is a no-op", async () => {
+    const transport: UploadTransport = {
+      send: async () => ({
+        body: "",
+        headers: {},
+        status: 200,
+      }),
+    };
+    const uploader = createUploader({
+      transport,
+    });
+    const upload = uploader.add({
+      options: {
+        url: "https://example.test/idempotent-cancel",
+      },
+      source: createSource("idempotent-cancel", 10),
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "completed");
+    upload.cancel();
+    expect(upload.status).toBe("completed");
+  });
+
+  it("cancelling an already-cancelled upload is a no-op", () => {
+    const transport: UploadTransport = {
+      send: async () => ({
+        body: "",
+        headers: {},
+        status: 200,
+      }),
+    };
+    const uploader = createUploader({
+      transport,
+    });
+    const cancelledUpload = uploader.add({
+      options: {
+        url: "https://example.test/never-runs",
+      },
+      source: createSource("never-runs", 10),
+    });
+    cancelledUpload.cancel();
+    cancelledUpload.cancel();
+    expect(cancelledUpload.status).toBe("cancelled");
+  });
+});
+
+describe("createUploader — external AbortSignal", () => {
+  it("honors an already-aborted signal by cancelling before any request is sent", async () => {
+    const sent: string[] = [];
+    const transport: UploadTransport = {
+      send: async (request: TransportRequest): Promise<TransportResponse> => {
+        sent.push(request.url);
+        return {
+          body: "",
+          headers: {},
+          status: 200,
+        };
+      },
+    };
+    const controller = new AbortController();
+    controller.abort();
+
+    const uploader = createUploader({
+      transport,
+    });
+    const upload = uploader.add({
+      options: {
+        signal: controller.signal,
+        url: "https://example.test/pre-aborted",
+      },
+      source: createSource("pre-aborted", 10),
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "cancelled");
+    expect(sent).toEqual([]);
+  });
+
+  it("honors a signal aborted after the upload has already started", async () => {
+    const transport: UploadTransport = {
+      send: async (): Promise<TransportResponse> => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return {
+          body: "",
+          headers: {},
+          status: 200,
+        };
+      },
+    };
+    const controller = new AbortController();
+    const uploader = createUploader({
+      transport,
+    });
+    const upload = uploader.add({
+      options: {
+        signal: controller.signal,
+        url: "https://example.test/live-abort",
+      },
+      source: createSource("live-abort", 10),
+    });
+    uploader.on("started", () => controller.abort());
+    uploader.start();
+
+    await waitFor(() => upload.status === "cancelled");
+  });
+});
+
+describe("createUploader — configuration validation", () => {
+  it("fails when a transport is configured but no destination url is given", async () => {
+    const transport: UploadTransport = {
+      send: async () => ({
+        body: "",
+        headers: {},
+        status: 200,
+      }),
+    };
+    const uploader = createUploader({
+      transport,
+    });
+    const upload = uploader.add({
+      source: createSource("no-url", 10),
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "failed");
+  });
+
+  it("fails when neither a transport nor a provider is configured", async () => {
+    const uploader = createUploader({});
+    const upload = uploader.add({
+      source: createSource("no-transport", 10),
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "failed");
+  });
+
+  it("fails with HttpError when the transport responds with a non-2xx status", async () => {
+    const transport: UploadTransport = {
+      send: async (): Promise<TransportResponse> => ({
+        body: "",
+        headers: {},
+        status: 400,
+      }),
+    };
+    const uploader = createUploader({
+      transport,
+    });
+    const upload = uploader.add({
+      options: {
+        url: "https://example.test/bad-status",
+      },
+      source: createSource("bad-status", 10),
+    });
+    let capturedError: unknown;
+    upload.on("failed", ({ error }) => {
+      capturedError = error;
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "failed");
+    expect(capturedError).toBeInstanceOf(HttpError);
+  });
+});
+
+describe("createUploader — multipart cancellation and persistence", () => {
+  it("deletes the persisted store record when a multipart upload is cancelled mid-transfer", async () => {
+    const store = createMemoryStore();
+    const provider: StorageProvider = {
+      abort: async () => undefined,
+      complete: async (): Promise<ProviderCompleteResult> => ({}),
+      create: async (): Promise<ProviderCreateResult> => ({
+        providerUploadId: "cancel-me",
+      }),
+      resume: async () => undefined,
+      uploadPart: async (_id, chunk): Promise<ProviderPartResult> => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return {
+          etag: `etag-${chunk.partNumber}`,
+          partNumber: chunk.partNumber,
+          sizeBytes: chunk.size,
+        };
+      },
+    };
+    const uploader = createUploader({
+      chunkConcurrency: 1,
+      chunkSize: 10,
+      provider,
+      store,
+    });
+    const upload = uploader.add({
+      source: createSource("cancel-multipart", 30),
+    });
+
+    let progressCount = 0;
+    upload.on("progress", () => {
+      progressCount += 1;
+      if (progressCount === 1) {
+        upload.cancel();
+      }
+    });
+    uploader.start();
+
+    await waitFor(() => upload.status === "cancelled");
+    expect(store.records.has("cancel-multipart")).toBe(false);
   });
 });
 

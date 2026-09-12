@@ -113,7 +113,9 @@ describe("createScheduler", () => {
     });
 
     expect(secondStarted).toBe(false);
+    expect(scheduler.concurrency).toBe(1);
     scheduler.setConcurrency(2);
+    expect(scheduler.concurrency).toBe(2);
     await Promise.resolve();
     expect(secondStarted).toBe(true);
     gate.resolve();
