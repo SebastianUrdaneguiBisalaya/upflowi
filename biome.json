@@ -24,7 +24,9 @@
       "!dist",
       "!build",
       "!.claude",
-      "!**/.claude"
+      "!**/.claude",
+      "!.agents",
+      "!**/.agents"
     ]
   },
   "formatter": {
