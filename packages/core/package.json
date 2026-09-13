@@ -1,6 +1,6 @@
 {
   "name": "@upflowi/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Headless, provider-agnostic file transfer engine: concurrency, chunking, multipart, retries, and persistence, with no bundled transport or storage provider.",
   "keywords": [
     "upload",

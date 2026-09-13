@@ -1,6 +1,6 @@
 {
   "name": "@upflowi/provider-http",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "upflowi storage provider for self-hosted / custom backends (your own VPS, an internal API, ...) over a small JSON-over-HTTP convention you implement server-side. No S3/R2 compatibility required.",
   "keywords": [
     "upload",
