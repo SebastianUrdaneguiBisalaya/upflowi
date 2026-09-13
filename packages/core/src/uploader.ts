@@ -162,6 +162,10 @@ export function createUploader(config: UploaderConfig = {}): Uploader {
           if (handle.status === "completed") {
             completedCount += 1;
           }
+          // By now handle.status is always terminal (completed/cancelled): free the entry so a
+          // finished upload's fileId can be reused, and so a long-lived Uploader doesn't retain
+          // every handle it has ever processed.
+          handles.delete(handle.fileId);
           checkAllCompleted();
         },
         () => {
@@ -171,6 +175,8 @@ export function createUploader(config: UploaderConfig = {}): Uploader {
           if (handle.status !== "cancelled") {
             failedCount += 1;
           }
+          // handle.status is terminal here too (failed/cancelled) — same reasoning as above.
+          handles.delete(handle.fileId);
           checkAllCompleted();
         },
       );
@@ -294,7 +300,7 @@ export function createUploader(config: UploaderConfig = {}): Uploader {
     },
     resume,
     get size() {
-      return handles.size;
+      return queuedTotal;
     },
     start,
   };

@@ -138,6 +138,28 @@ type AddFileInput = {
     title: "The exact shape of a file you register",
   },
   {
+    category: "Getting started",
+    code: `// No store — the common case. A fresh id per attempt is all you need:
+uploader.add({
+  source: { fileId: crypto.randomUUID(), size: file.size, read: async () => file },
+  options: { url },
+});
+
+// With a store — fileId doubles as the resume key, so it must be the
+// SAME value across a reload for the same logical upload:
+const fileId = \`\${userId}-\${file.name}-\${file.size}-\${file.lastModified}\`;
+
+// Or, if the file can be renamed/moved and should still resume:
+const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+const stableFileId = Array.from(new Uint8Array(digest))
+  .map((b) => b.toString(16).padStart(2, "0"))
+  .join("");`,
+    description:
+      "add() throws UploadValidationError if fileId is already tracked by a queued or uploading file in that Uploader — but once an upload reaches completed, failed, or cancelled, its fileId is freed and can be reused. Core never generates one for you: with no store, a random id per attempt is enough; with a store, fileId is also the persistence key, so it needs to be stable and deterministic across a reload for the store to find the right record.",
+    id: "file-id-strategy",
+    title: "Choosing a fileId: random vs. stable",
+  },
+  {
     category: "Orchestration",
     code: `// The full lifecycle of a single Upload — every legal transition:
 //
