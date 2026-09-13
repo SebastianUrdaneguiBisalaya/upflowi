@@ -1,6 +1,6 @@
 {
   "name": "@upflowi/store-memory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "In-memory UploadStore for upflowi — process-lifetime resume state, useful for tests, Node scripts, and any environment where persistence across reloads isn't needed.",
   "keywords": [
     "upload",

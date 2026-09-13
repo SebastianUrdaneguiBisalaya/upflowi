@@ -1,6 +1,6 @@
 {
   "name": "@upflowi/transport-fetch",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "upflowi transport backed by the standard Fetch API. Works in any environment exposing global fetch (modern browsers, Node.js 18+).",
   "keywords": [
     "upload",
