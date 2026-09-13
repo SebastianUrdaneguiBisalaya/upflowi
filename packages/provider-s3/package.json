@@ -1,6 +1,6 @@
 {
   "name": "@upflowi/provider-s3",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "upflowi storage provider for AWS S3 multipart uploads, driven entirely by presigned URLs your own backend generates. Never receives AWS credentials.",
   "keywords": [
     "upload",

@@ -1,6 +1,6 @@
 {
   "name": "@upflowi/provider-r2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "upflowi storage provider for Cloudflare R2 multipart uploads, driven entirely by presigned URLs your own backend generates. Never receives R2/S3 credentials.",
   "keywords": [
     "upload",
