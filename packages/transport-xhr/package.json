@@ -1,6 +1,6 @@
 {
   "name": "@upflowi/transport-xhr",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "upflowi transport backed by XMLHttpRequest, for browser environments that need fine-grained upload progress via xhr.upload.onprogress.",
   "keywords": [
     "upload",
