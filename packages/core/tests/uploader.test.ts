@@ -729,6 +729,104 @@ describe("createUploader — registration and lifecycle controls", () => {
   });
 });
 
+describe("createUploader — fileId reuse", () => {
+  it("rejects a fileId still tracked by an active or queued upload", () => {
+    const transport: UploadTransport = {
+      send: async () => ({
+        body: "",
+        headers: {},
+        status: 200,
+      }),
+    };
+    const uploader = createUploader({
+      transport,
+    });
+    uploader.add({
+      options: {
+        url: "https://example.test/file",
+      },
+      source: createSource("dup", 10),
+    });
+
+    expect(() =>
+      uploader.add({
+        options: {
+          url: "https://example.test/file",
+        },
+        source: createSource("dup", 10),
+      }),
+    ).toThrow(UploadValidationError);
+  });
+
+  it("allows reusing a fileId once its upload has completed", async () => {
+    const transport: UploadTransport = {
+      send: async () => ({
+        body: "",
+        headers: {},
+        status: 200,
+      }),
+    };
+    const uploader = createUploader({
+      transport,
+    });
+
+    const first = uploader.add({
+      options: {
+        url: "https://example.test/file",
+      },
+      source: createSource("reused", 10),
+    });
+    uploader.start();
+    await waitFor(() => first.status === "completed");
+
+    const second = uploader.add({
+      options: {
+        url: "https://example.test/file",
+      },
+      source: createSource("reused", 10),
+    });
+    uploader.start();
+    await waitFor(() => second.status === "completed");
+
+    expect(second.status).toBe("completed");
+    expect(uploader.size).toBe(2);
+  });
+
+  it("allows reusing a fileId once its upload has permanently failed", async () => {
+    const transport: UploadTransport = {
+      send: async () => {
+        throw new NetworkError("still down");
+      },
+    };
+    const uploader = createUploader({
+      retry: {
+        initialDelayMs: 1,
+        jitter: false,
+        maxAttempts: 1,
+      },
+      transport,
+    });
+
+    const first = uploader.add({
+      options: {
+        url: "https://example.test/file",
+      },
+      source: createSource("retried", 10),
+    });
+    uploader.start();
+    await waitFor(() => first.status === "failed");
+
+    expect(() =>
+      uploader.add({
+        options: {
+          url: "https://example.test/file",
+        },
+        source: createSource("retried", 10),
+      }),
+    ).not.toThrow();
+  });
+});
+
 describe("createUploader — external AbortSignal", () => {
   it("honors an already-aborted signal by cancelling before any request is sent", async () => {
     const sent: string[] = [];

@@ -150,6 +150,38 @@ app.post("/api/s3-presign", async (req, res) => {
 
 Swap `@upflowi/provider-s3` for `@upflowi/provider-r2` to target Cloudflare R2 instead — the client code above doesn't change, only how your backend signs URLs.
 
+### Choosing a `fileId`
+
+`fileId` must be unique among files the `Uploader` is currently tracking: `add()` throws `UploadValidationError` if you reuse one while its upload is still queued or uploading. Once an upload reaches `completed`, `failed`, or `cancelled`, its `fileId` is freed and can be reused — `@upflowi/core` never generates one for you, since only your app knows whether a given upload needs to survive a reload.
+
+**No store (the common case):** generate a fresh id per upload attempt — you don't want two different users' `"avatar.png"` colliding, or a retried upload in the same session tripping the duplicate check.
+
+```ts
+uploader.add({
+  source: { fileId: crypto.randomUUID(), size: file.size, read: async () => file },
+  options: { url },
+});
+```
+
+**With a store (resumable multipart):** `fileId` doubles as the persistence key — it must be **stable and deterministic** across a page reload or crash so the store can find the previous record. A random id defeats resume entirely, since the reloaded page would never produce the same key twice.
+
+```ts
+// Stable without reading the file's bytes:
+const fileId = `${userId}-${file.name}-${file.size}-${file.lastModified}`;
+
+// Or, if the same logical file can be renamed/moved and should still resume:
+const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+const fileId = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+```
+
+One more thing a store doesn't do for you: it isn't cleaned up automatically when an upload fails permanently (only `completed` and `cancelled` clear the stored record). Listen for `failed` and delete it yourself if you don't want orphaned records accumulating:
+
+```ts
+uploader.on("failed", ({ fileId }) => {
+  void myStore.delete(fileId);
+});
+```
+
 ### Resumable uploads
 
 Pair a provider with an `UploadStore` and a crashed or reloaded upload resumes without re-transferring completed parts:
